@@ -25,4 +25,24 @@ fi
 # container), so removing the file unconditionally is safe.
 rm -f /data/.hermes/gateway.pid
 
+# GBrain runtime state. /data is for state/config only, not source/node_modules.
+export GBRAIN_HOME="${GBRAIN_HOME:-/data}"
+mkdir -p /data/.gbrain
+
+if [ ! -f /data/.gbrain/config.json ]; then
+  cat > /data/.gbrain/config.json <<'EOF'
+{
+  "engine": "postgres"
+}
+EOF
+fi
+
+echo "[startup] GBRAIN_HOME=${GBRAIN_HOME}"
+echo "[startup] Checking gbrain availability..."
+if command -v gbrain >/dev/null 2>&1; then
+  gbrain --version || true
+else
+  echo "[startup] WARNING: gbrain not found on PATH"
+fi
+
 exec python /app/server.py

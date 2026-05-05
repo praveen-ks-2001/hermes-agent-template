@@ -56,6 +56,22 @@ RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/h
 # - We keep ui-tui/ entirely (node_modules + dist + src) so hermes's
 #   freshness checks don't trigger a re-install at runtime.
 
+# Install Bun and GBrain at image build time.
+# /data is reserved for runtime state only.
+ENV BUN_INSTALL=/opt/bun
+ENV PATH="/opt/bun/bin:${PATH}"
+
+ARG GBRAIN_REF=master
+
+RUN curl -fsSL https://bun.sh/install | bash && \
+    git clone --depth 1 --branch ${GBRAIN_REF} https://github.com/garrytan/gbrain.git /opt/gbrain && \
+    cd /opt/gbrain && \
+    bun install && \
+    bun link && \
+    command -v bun && \
+    bun --version && \
+    command -v gbrain || true
+
 COPY requirements.txt /app/requirements.txt
 RUN uv pip install --system --no-cache -r /app/requirements.txt
 
