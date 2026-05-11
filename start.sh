@@ -1,10 +1,4 @@
 #!/bin/bash
-
-# Authenticate GitHub CLI with token
-if [ -n "$GITHUB_TOKEN" ]; then
-    echo "$GITHUB_TOKEN" | gh auth login --with-token
-fi
-
 set -e
 
 # Mirror dashboard-ref-only's startup: create every directory hermes expects
