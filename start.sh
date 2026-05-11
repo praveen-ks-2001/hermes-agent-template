@@ -1,16 +1,4 @@
 #!/bin/bash
-
-# Configure GitHub CLI with token
-if [ -n "$GITHUB_TOKEN" ]; then
-    mkdir -p ~/.config/gh
-    cat > ~/.config/gh/hosts.yml <<EOF
-github.com:
-    oauth_token: $GITHUB_TOKEN
-    git_protocol: https
-EOF
-    chmod 600 ~/.config/gh/hosts.yml
-fi
-
 set -e
 
 # Mirror dashboard-ref-only's startup: create every directory hermes expects
@@ -36,20 +24,5 @@ fi
 # No hermes process can be running at this point (we're pre-exec in a fresh
 # container), so removing the file unconditionally is safe.
 rm -f /data/.hermes/gateway.pid
-
-# Step 1 — Encrypt: read .env (or .env.encrypted if it already exists) and
-# write all secret values in encrypted form to .env.encrypted.
-# Requires HERMES_ENCRYPTION_KEY to be set as a Railway service variable.
-# If the key is absent, the script prints a newly generated key and exits
-# with a non-zero code so the deploy fails loudly rather than running with
-# unencrypted secrets. Set HERMES_ENCRYPTION_KEY in Railway and redeploy.
-python /app/encrypt_secrets.py
-
-# Step 2 — Decrypt to plaintext: read .env.encrypted and write a fully
-# plaintext /data/.hermes/.env so the Hermes gateway subprocess can load it
-# directly with its own dotenv reader without encountering "enc:..." tokens.
-# The plaintext .env is ephemeral — it is recreated on every boot from the
-# encrypted backup, which remains the persistent source of truth on disk.
-python /app/encrypt_secrets.py --decrypt-to-plaintext
 
 exec python /app/server.py

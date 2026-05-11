@@ -22,7 +22,7 @@ ARG HERMES_REF=v2026.5.7
 # Node.js is required only at build time to compile the Hermes React dashboard.
 # We strip the source + apt lists afterwards to keep the image lean.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates git tini gh && \
+    apt-get install -y --no-install-recommends curl ca-certificates git tini && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
@@ -62,7 +62,6 @@ RUN uv pip install --system --no-cache -r /app/requirements.txt
 RUN mkdir -p /data/.hermes
 
 COPY server.py /app/server.py
-COPY encrypt_secrets.py /app/encrypt_secrets.py
 COPY templates/ /app/templates/
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh

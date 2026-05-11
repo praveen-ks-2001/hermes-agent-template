@@ -33,27 +33,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-
-# Transparent at-rest encryption for .env secrets.  decrypt_value() is a
-# no-op for plaintext values, so read_env() works correctly whether or not
-# HERMES_ENCRYPTION_KEY is configured (graceful degradation).
-try:
-    from encrypt_secrets import (
-        decrypt_value as _decrypt_value,
-        encrypt_value as _encrypt_value,
-        is_encrypted as _is_encrypted,
-        decrypt_env_file as _decrypt_env_file,
-        ENCRYPTED_ENV_FILENAME as _ENCRYPTED_ENV_FILENAME,
-    )
-    _CRYPTO_AVAILABLE = True
-except ImportError:
-    _CRYPTO_AVAILABLE = False
-    def _decrypt_value(v: str) -> str: return v  # type: ignore[misc]
-    def _encrypt_value(v: str) -> str: return v  # type: ignore[misc]
-    def _is_encrypted(v: str) -> bool: return False  # type: ignore[misc]
-    def _decrypt_env_file(enc: "Path", plain: "Path") -> int: return 0  # type: ignore[misc]
-    _ENCRYPTED_ENV_FILENAME = ".env.encrypted"
-
 import websockets
 import websockets.exceptions
 from starlette.applications import Starlette
@@ -73,7 +52,6 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 HERMES_HOME = os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
 ENV_FILE = Path(HERMES_HOME) / ".env"
-ENCRYPTED_ENV_FILE = Path(HERMES_HOME) / _ENCRYPTED_ENV_FILENAME
 PAIRING_DIR = Path(HERMES_HOME) / "pairing"
 PAIRING_TTL = 3600
 
@@ -174,13 +152,6 @@ def read_env(path: Path) -> dict[str, str]:
         v = v.strip()
         if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
             v = v[1:-1]
-        # Transparently decrypt Fernet-encrypted values (enc:<token>).
-        # Falls back to the raw value if the crypto layer is unavailable or
-        # the value is plaintext — so startup is never blocked by a missing key.
-        try:
-            v = _decrypt_value(v)
-        except Exception as exc:
-            print(f"[server] WARNING: could not decrypt {k.strip()}: {exc}", flush=True)
         out[k.strip()] = v
     return out
 
@@ -208,17 +179,7 @@ data_dir: "{HERMES_HOME}"
 
 
 def write_env(path: Path, data: dict[str, str]) -> None:
-    """Write *data* to the encrypted backup file and regenerate the plaintext .env.
-
-    *path* is the plaintext .env path (ENV_FILE) — kept as the parameter for
-    call-site compatibility.  Internally we write the encrypted form to
-    .env.encrypted (the persistent source of truth) and then immediately
-    regenerate the plaintext .env from it so the Hermes gateway subprocess
-    always reads fresh plaintext credentials.
-    """
-    encrypted_path = path.parent / _ENCRYPTED_ENV_FILENAME
-    encrypted_path.parent.mkdir(parents=True, exist_ok=True)
-
+    path.parent.mkdir(parents=True, exist_ok=True)
     cat_order = ["model", "provider", "tool",
                  "telegram", "discord", "slack", "whatsapp",
                  "email", "mattermost", "matrix", "gateway"]
@@ -235,14 +196,6 @@ def write_env(path: Path, data: dict[str, str]) -> None:
     for k, v in data.items():
         if not v:
             continue
-        # Encrypt secret values before writing to disk.  Already-encrypted
-        # values (written by a previous call) are left untouched so we don't
-        # double-encrypt.  Non-secret keys are stored in plaintext.
-        if k in SECRET_KEYS and _CRYPTO_AVAILABLE and not _is_encrypted(v):
-            try:
-                v = _encrypt_value(v)
-            except Exception as exc:
-                print(f"[server] WARNING: could not encrypt {k}: {exc}", flush=True)
         cat = key_cat.get(k, "other")
         grouped.setdefault(cat, []).append(f"{k}={v}")
 
@@ -258,19 +211,7 @@ def write_env(path: Path, data: dict[str, str]) -> None:
         lines.extend(sorted(grouped["other"]))
         lines.append("")
 
-    # Write the encrypted backup — this is the persistent source of truth.
-    encrypted_path.write_text("\n".join(lines))
-    try:
-        os.chmod(encrypted_path, 0o600)
-    except OSError:
-        pass
-
-    # Regenerate the plaintext .env so the Hermes gateway subprocess reads
-    # fresh plaintext credentials on its next (re)start.
-    try:
-        _decrypt_env_file(encrypted_path, path)
-    except Exception as exc:
-        print(f"[server] WARNING: could not regenerate plaintext .env: {exc}", flush=True)
+    path.write_text("\n".join(lines))
 
 
 def is_config_complete(data: dict[str, str] | None = None) -> bool:
@@ -488,9 +429,8 @@ class Gateway:
         self.state = "starting"
         try:
             # .env values take priority over Railway env vars.
-            # HERMES_HOME/.env is a plaintext file regenerated on every boot
-            # from .env.encrypted, so hermes gateway reads correct credentials
-            # whether it uses the environment or its own dotenv loader.
+            # We build the env this way so hermes's own dotenv loading
+            # (which reads the same file) doesn't shadow our values.
             env = {**os.environ, "HERMES_HOME": HERMES_HOME}
             env.update(read_env(ENV_FILE))
             model = env.get("LLM_MODEL", "")
@@ -576,12 +516,6 @@ class Dashboard:
         if self.proc and self.proc.returncode is None:
             return
         try:
-            # Pass .env values explicitly into the subprocess environment.
-            # HERMES_HOME/.env is a plaintext file regenerated on every boot
-            # from .env.encrypted, so hermes dashboard reads correct credentials
-            # whether it uses the environment or its own dotenv loader.
-            env = {**os.environ, "HERMES_HOME": HERMES_HOME}
-            env.update(read_env(ENV_FILE))
             self.proc = await asyncio.create_subprocess_exec(
                 "hermes", "dashboard",
                 "--host", HERMES_DASHBOARD_HOST,
@@ -595,7 +529,6 @@ class Dashboard:
                 "--tui",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                env=env,
             )
             print(f"[dashboard] spawned pid={self.proc.pid} → {HERMES_DASHBOARD_URL}", flush=True)
             self._drain_task = asyncio.create_task(self._drain())
@@ -731,10 +664,6 @@ async def api_config_reset(request: Request):
     if err := guard(request): return err
     asyncio.create_task(gw.stop())
     async with cfg_lock:
-        # Remove both the encrypted backup (source of truth) and the
-        # ephemeral plaintext .env so Hermes starts clean on next boot.
-        if ENCRYPTED_ENV_FILE.exists():
-            ENCRYPTED_ENV_FILE.unlink()
         if ENV_FILE.exists():
             ENV_FILE.unlink()
         write_config_yaml({})
