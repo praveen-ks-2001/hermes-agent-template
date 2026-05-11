@@ -7,6 +7,3 @@ httpx>=0.27.0
 # hermes's /api/pty, /api/ws, /api/events endpoints. httpx does not speak
 # WebSockets, so we need a dedicated client library.
 websockets>=12.0
-# Fernet (AES-128-CBC + HMAC-SHA256) symmetric encryption for at-rest
-# secret storage in /data/.hermes/.env.
-cryptography>=42.0.0

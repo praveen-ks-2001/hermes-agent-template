@@ -33,19 +33,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-
-# Transparent at-rest encryption for .env secrets.  decrypt_value() is a
-# no-op for plaintext values, so read_env() works correctly whether or not
-# HERMES_ENCRYPTION_KEY is configured (graceful degradation).
-try:
-    from encrypt_secrets import decrypt_value as _decrypt_value, encrypt_value as _encrypt_value, is_encrypted as _is_encrypted
-    _CRYPTO_AVAILABLE = True
-except ImportError:
-    _CRYPTO_AVAILABLE = False
-    def _decrypt_value(v: str) -> str: return v  # type: ignore[misc]
-    def _encrypt_value(v: str) -> str: return v  # type: ignore[misc]
-    def _is_encrypted(v: str) -> bool: return False  # type: ignore[misc]
-
 import websockets
 import websockets.exceptions
 from starlette.applications import Starlette
@@ -165,13 +152,6 @@ def read_env(path: Path) -> dict[str, str]:
         v = v.strip()
         if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
             v = v[1:-1]
-        # Transparently decrypt Fernet-encrypted values (enc:<token>).
-        # Falls back to the raw value if the crypto layer is unavailable or
-        # the value is plaintext — so startup is never blocked by a missing key.
-        try:
-            v = _decrypt_value(v)
-        except Exception as exc:
-            print(f"[server] WARNING: could not decrypt {k.strip()}: {exc}", flush=True)
         out[k.strip()] = v
     return out
 
@@ -216,14 +196,6 @@ def write_env(path: Path, data: dict[str, str]) -> None:
     for k, v in data.items():
         if not v:
             continue
-        # Encrypt secret values before writing to disk.  Already-encrypted
-        # values (written by a previous call) are left untouched so we don't
-        # double-encrypt.  Non-secret keys are stored in plaintext.
-        if k in SECRET_KEYS and _CRYPTO_AVAILABLE and not _is_encrypted(v):
-            try:
-                v = _encrypt_value(v)
-            except Exception as exc:
-                print(f"[server] WARNING: could not encrypt {k}: {exc}", flush=True)
         cat = key_cat.get(k, "other")
         grouped.setdefault(cat, []).append(f"{k}={v}")
 
@@ -240,11 +212,6 @@ def write_env(path: Path, data: dict[str, str]) -> None:
         lines.append("")
 
     path.write_text("\n".join(lines))
-    # Tighten permissions so only the process owner can read the file.
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
 
 
 def is_config_complete(data: dict[str, str] | None = None) -> bool:

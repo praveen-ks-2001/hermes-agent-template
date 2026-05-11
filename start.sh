@@ -37,11 +37,4 @@ fi
 # container), so removing the file unconditionally is safe.
 rm -f /data/.hermes/gateway.pid
 
-# Encrypt any plaintext secrets in .env before the server starts.
-# Requires HERMES_ENCRYPTION_KEY to be set as a Railway service variable.
-# If the key is absent, the script prints a newly generated key and exits
-# with a non-zero code so the deploy fails loudly rather than running with
-# unencrypted secrets. Set HERMES_ENCRYPTION_KEY in Railway and redeploy.
-python /app/encrypt_secrets.py
-
 exec python /app/server.py
