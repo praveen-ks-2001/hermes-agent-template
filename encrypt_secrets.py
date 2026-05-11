@@ -1,16 +1,31 @@
 """
 Hermes secrets encryption utility.
 
-Provides at-rest encryption for all values stored in /data/.hermes/.env using
-Fernet (AES-128-CBC + HMAC-SHA256). Encrypted values are stored with an
+Provides at-rest encryption for all values stored in /data/.hermes/.env.encrypted
+using Fernet (AES-128-CBC + HMAC-SHA256). Encrypted values are stored with an
 "enc:" prefix so they are distinguishable from plaintext values.
+
+File layout
+-----------
+  /data/.hermes/.env.encrypted  — persistent, encrypted source of truth (at-rest security)
+  /data/.hermes/.env            — ephemeral plaintext file regenerated on every boot;
+                                  read directly by the Hermes gateway subprocess
 
 Usage modes
 -----------
-1. Called directly by start.sh at container boot:
+1. Called directly by start.sh at container boot (two-step):
+
+   Step 1 — encrypt:
        python /app/encrypt_secrets.py
-   Reads the .env file, encrypts any plaintext secret values in-place, and
-   exits. Idempotent — already-encrypted values are left untouched.
+   Reads /data/.hermes/.env (if it exists and .env.encrypted does not yet),
+   encrypts any plaintext secret values, and writes them to .env.encrypted.
+   Idempotent — already-encrypted values are left untouched.
+
+   Step 2 — decrypt to plaintext:
+       python /app/encrypt_secrets.py --decrypt-to-plaintext
+   Reads .env.encrypted, decrypts every value, and writes a plaintext
+   /data/.hermes/.env so the Hermes gateway subprocess can read it directly
+   without needing to understand the "enc:..." format.
 
 2. Imported by server.py for transparent decrypt-on-read:
        from encrypt_secrets import decrypt_value, get_fernet
@@ -114,8 +129,11 @@ def decrypt_value(value: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# File-level encryption pass (called by start.sh)
+# File-level encryption / decryption pass (called by start.sh)
 # ---------------------------------------------------------------------------
+
+# The encrypted backup file that is the persistent source of truth.
+ENCRYPTED_ENV_FILENAME = ".env.encrypted"
 
 # Keys whose values should be encrypted at rest.  Mirrors SECRET_KEYS in
 # server.py — kept in sync manually; non-secret keys (model name, boolean
@@ -152,15 +170,17 @@ _SECRET_KEY_NAMES = {
 }
 
 
-def encrypt_env_file(env_path: Path) -> int:
-    """Encrypt all plaintext secret values in *env_path* in-place.
+def encrypt_env_file(source_path: Path, dest_path: Path) -> int:
+    """Read *source_path*, encrypt all plaintext secret values, and write the
+    result to *dest_path* (which may be the same file for in-place operation,
+    but is typically the separate ``.env.encrypted`` backup).
 
     Returns the number of values that were newly encrypted.
     """
-    if not env_path.exists():
+    if not source_path.exists():
         return 0
 
-    original = env_path.read_text()
+    original = source_path.read_text()
     lines = original.splitlines(keepends=True)
     new_lines: list[str] = []
     encrypted_count = 0
@@ -188,15 +208,69 @@ def encrypt_env_file(env_path: Path) -> int:
         else:
             new_lines.append(line)
 
-    if encrypted_count:
-        env_path.write_text("".join(new_lines))
-        # Tighten permissions so only the process owner can read the file.
-        try:
-            os.chmod(env_path, 0o600)
-        except OSError:
-            pass
+    dest_path.write_text("".join(new_lines))
+    # Tighten permissions so only the process owner can read the file.
+    try:
+        os.chmod(dest_path, 0o600)
+    except OSError:
+        pass
 
     return encrypted_count
+
+
+def decrypt_env_file(encrypted_path: Path, plaintext_path: Path) -> int:
+    """Read *encrypted_path*, decrypt every value, and write a fully plaintext
+    ``.env`` to *plaintext_path*.
+
+    This is the inverse of ``encrypt_env_file``.  The resulting file is
+    intentionally ephemeral — it is recreated on every container boot from the
+    encrypted backup so that Hermes can read it directly without needing to
+    understand the ``enc:...`` format.
+
+    Returns the number of values that were decrypted.
+    """
+    if not encrypted_path.exists():
+        return 0
+
+    lines = encrypted_path.read_text().splitlines(keepends=True)
+    new_lines: list[str] = []
+    decrypted_count = 0
+
+    for line in lines:
+        stripped = line.rstrip("\n")
+        # Preserve comments, blank lines, and non-assignment lines verbatim.
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            new_lines.append(line)
+            continue
+
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        value = value.strip()
+
+        # Strip surrounding quotes if present.
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+
+        if is_encrypted(value):
+            try:
+                value = decrypt_value(value)
+                decrypted_count += 1
+            except Exception as exc:
+                print(
+                    f"[encrypt_secrets] WARNING: could not decrypt {key}: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        new_lines.append(f"{key}={value}\n")
+
+    plaintext_path.write_text("".join(new_lines))
+    # Restrict read access — plaintext is sensitive even if ephemeral.
+    try:
+        os.chmod(plaintext_path, 0o600)
+    except OSError:
+        pass
+
+    return decrypted_count
 
 
 # ---------------------------------------------------------------------------
@@ -229,79 +303,87 @@ def _generate_and_print_key() -> None:
     sys.exit(1)
 
 
-def decrypt_env_to_shell_exports(env_path: Path) -> str:
-    """Read *env_path*, decrypt every value, and return a string of
-    POSIX ``export KEY='VALUE'`` statements suitable for ``eval``-ing in
-    a shell script.
-
-    Non-assignment lines (comments, blanks) are silently skipped.
-    Values that contain single-quotes are safely escaped.
-    """
-    if not env_path.exists():
-        return ""
-
-    lines: list[str] = []
-    for line in env_path.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, _, value = stripped.partition("=")
-        key = key.strip()
-        value = value.strip()
-        # Strip surrounding quotes written by write_env.
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        # Decrypt if needed.
-        try:
-            value = decrypt_value(value)
-        except Exception as exc:
-            print(f"[encrypt_secrets] WARNING: could not decrypt {key}: {exc}", file=sys.stderr, flush=True)
-        # Escape single-quotes for safe shell embedding: ' → '\''
-        safe_value = value.replace("'", "'\\''")
-        lines.append(f"export {key}='{safe_value}'")
-    return "\n".join(lines)
-
-
 def main() -> None:
     hermes_home = os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
     env_path = Path(hermes_home) / ".env"
+    encrypted_path = Path(hermes_home) / ENCRYPTED_ENV_FILENAME
 
-    # --export-decrypted: print shell export statements for all decrypted
-    # values so start.sh can eval them into the process environment.
-    if "--export-decrypted" in sys.argv:
+    # --decrypt-to-plaintext: read .env.encrypted, decrypt every value, and
+    # write a plaintext .env so the Hermes gateway subprocess can read it
+    # directly without needing to understand the "enc:..." format.
+    if "--decrypt-to-plaintext" in sys.argv:
         if not os.environ.get("HERMES_ENCRYPTION_KEY", "").strip():
-            # No key — nothing to decrypt; exit silently so eval is a no-op.
+            # No key — nothing to decrypt; create an empty .env and exit.
+            if not env_path.exists():
+                env_path.touch()
             sys.exit(0)
         try:
             get_fernet()
         except RuntimeError as exc:
             print(f"[encrypt_secrets] ERROR: {exc}", file=sys.stderr, flush=True)
             sys.exit(1)
-        print(decrypt_env_to_shell_exports(env_path))
+        if not encrypted_path.exists():
+            print(
+                f"[encrypt_secrets] No {ENCRYPTED_ENV_FILENAME} found — writing empty .env.",
+                flush=True,
+            )
+            env_path.touch()
+            try:
+                os.chmod(env_path, 0o600)
+            except OSError:
+                pass
+            return
+        count = decrypt_env_file(encrypted_path, env_path)
+        print(
+            f"[encrypt_secrets] Decrypted {count} secret(s) from {encrypted_path} → {env_path}",
+            flush=True,
+        )
         return
 
-    # Default mode: encrypt plaintext secrets in the .env file in-place.
+    # Default mode: encrypt plaintext secrets from .env into .env.encrypted.
+    #
+    # Migration path for existing deployments:
+    #   • If .env.encrypted already exists, it is the source of truth — re-run
+    #     the encryption pass on it in-place to pick up any new plaintext values
+    #     that server.py may have written there directly.
+    #   • If only .env exists (legacy layout), encrypt it into .env.encrypted
+    #     and leave the original .env untouched (start.sh will overwrite it with
+    #     the plaintext version in the --decrypt-to-plaintext step).
 
     # If no key is configured, generate one and tell the operator.
     if not os.environ.get("HERMES_ENCRYPTION_KEY", "").strip():
         _generate_and_print_key()
 
-    # Validate the key before touching the file.
+    # Validate the key before touching any file.
     try:
         get_fernet()
     except RuntimeError as exc:
         print(f"[encrypt_secrets] ERROR: {exc}", flush=True)
         sys.exit(1)
 
-    if not env_path.exists():
-        print("[encrypt_secrets] No .env file found — nothing to encrypt.", flush=True)
-        return
-
-    count = encrypt_env_file(env_path)
-    if count:
-        print(f"[encrypt_secrets] Encrypted {count} plaintext secret(s) in {env_path}", flush=True)
+    if encrypted_path.exists():
+        # Re-encrypt any plaintext values that may have been written to
+        # .env.encrypted directly (e.g. by server.py's write_env).
+        count = encrypt_env_file(encrypted_path, encrypted_path)
+        if count:
+            print(
+                f"[encrypt_secrets] Encrypted {count} plaintext secret(s) in {encrypted_path}",
+                flush=True,
+            )
+        else:
+            print(
+                f"[encrypt_secrets] All secrets already encrypted in {encrypted_path}",
+                flush=True,
+            )
+    elif env_path.exists():
+        # Legacy layout: migrate .env → .env.encrypted.
+        count = encrypt_env_file(env_path, encrypted_path)
+        print(
+            f"[encrypt_secrets] Migrated {count} secret(s) from {env_path} → {encrypted_path}",
+            flush=True,
+        )
     else:
-        print(f"[encrypt_secrets] All secrets already encrypted in {env_path}", flush=True)
+        print("[encrypt_secrets] No .env or .env.encrypted found — nothing to encrypt.", flush=True)
 
 
 if __name__ == "__main__":
