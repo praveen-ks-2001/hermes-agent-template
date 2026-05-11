@@ -2,7 +2,7 @@
 
 # Authenticate GitHub CLI with token
 if [ -n "$GITHUB_TOKEN" ]; then
-    echo "$GITHUB_TOKEN" | gh auth login --with-token
+    export GH_TOKEN="$GITHUB_TOKEN"
 fi
 
 set -e
