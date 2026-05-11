@@ -44,11 +44,4 @@ rm -f /data/.hermes/gateway.pid
 # unencrypted secrets. Set HERMES_ENCRYPTION_KEY in Railway and redeploy.
 python /app/encrypt_secrets.py
 
-# Export all secrets as environment variables so Hermes subprocesses receive
-# plaintext values directly from the environment rather than reading the
-# encrypted "enc:..." tokens from /data/.hermes/.env.  The encrypted file
-# stays on the persistent volume for at-rest security; the decrypted values
-# only ever exist in the process environment (ephemeral, not written to disk).
-eval "$(python /app/encrypt_secrets.py --export-decrypted)"
-
 exec python /app/server.py

@@ -549,11 +549,6 @@ class Dashboard:
         if self.proc and self.proc.returncode is None:
             return
         try:
-            # Pass decrypted .env values explicitly so hermes dashboard
-            # receives plaintext tokens even if it tries to read
-            # HERMES_HOME/.env directly (which contains enc:... ciphertext).
-            env = {**os.environ, "HERMES_HOME": HERMES_HOME}
-            env.update(read_env(ENV_FILE))
             self.proc = await asyncio.create_subprocess_exec(
                 "hermes", "dashboard",
                 "--host", HERMES_DASHBOARD_HOST,
@@ -567,7 +562,6 @@ class Dashboard:
                 "--tui",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                env=env,
             )
             print(f"[dashboard] spawned pid={self.proc.pid} → {HERMES_DASHBOARD_URL}", flush=True)
             self._drain_task = asyncio.create_task(self._drain())

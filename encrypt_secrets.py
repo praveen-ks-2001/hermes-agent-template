@@ -229,58 +229,9 @@ def _generate_and_print_key() -> None:
     sys.exit(1)
 
 
-def decrypt_env_to_shell_exports(env_path: Path) -> str:
-    """Read *env_path*, decrypt every value, and return a string of
-    POSIX ``export KEY='VALUE'`` statements suitable for ``eval``-ing in
-    a shell script.
-
-    Non-assignment lines (comments, blanks) are silently skipped.
-    Values that contain single-quotes are safely escaped.
-    """
-    if not env_path.exists():
-        return ""
-
-    lines: list[str] = []
-    for line in env_path.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, _, value = stripped.partition("=")
-        key = key.strip()
-        value = value.strip()
-        # Strip surrounding quotes written by write_env.
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        # Decrypt if needed.
-        try:
-            value = decrypt_value(value)
-        except Exception as exc:
-            print(f"[encrypt_secrets] WARNING: could not decrypt {key}: {exc}", file=sys.stderr, flush=True)
-        # Escape single-quotes for safe shell embedding: ' → '\''
-        safe_value = value.replace("'", "'\\''")
-        lines.append(f"export {key}='{safe_value}'")
-    return "\n".join(lines)
-
-
 def main() -> None:
     hermes_home = os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
     env_path = Path(hermes_home) / ".env"
-
-    # --export-decrypted: print shell export statements for all decrypted
-    # values so start.sh can eval them into the process environment.
-    if "--export-decrypted" in sys.argv:
-        if not os.environ.get("HERMES_ENCRYPTION_KEY", "").strip():
-            # No key — nothing to decrypt; exit silently so eval is a no-op.
-            sys.exit(0)
-        try:
-            get_fernet()
-        except RuntimeError as exc:
-            print(f"[encrypt_secrets] ERROR: {exc}", file=sys.stderr, flush=True)
-            sys.exit(1)
-        print(decrypt_env_to_shell_exports(env_path))
-        return
-
-    # Default mode: encrypt plaintext secrets in the .env file in-place.
 
     # If no key is configured, generate one and tell the operator.
     if not os.environ.get("HERMES_ENCRYPTION_KEY", "").strip():
