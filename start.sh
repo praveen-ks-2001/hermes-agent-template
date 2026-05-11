@@ -1,14 +1,8 @@
 #!/bin/bash
 
-# Configure GitHub CLI with token
+# Authenticate GitHub CLI with token
 if [ -n "$GITHUB_TOKEN" ]; then
-    mkdir -p ~/.config/gh
-    cat > ~/.config/gh/hosts.yml <<EOF
-github.com:
-    oauth_token: $GITHUB_TOKEN
-    git_protocol: https
-EOF
-    chmod 600 ~/.config/gh/hosts.yml
+    export GH_TOKEN="$GITHUB_TOKEN"
 fi
 
 set -e
