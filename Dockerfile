@@ -8,7 +8,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 # newest tag (format `vYYYY.M.D`, e.g. `v2026.4.23`) and update the default
 # below. Use `main` only if you accept that every rebuild can pull arbitrary
 # new upstream commits.
-ARG HERMES_REF=v2026.5.7
+ARG HERMES_REF=v2026.4.30
 
 # tini = tiny init that we run as PID 1. Without it, hermes's grandchild
 # processes (MCP stdio servers, git, bun, browser daemons spawned by tools)
@@ -69,10 +69,6 @@ RUN chmod +x /app/start.sh
 ENV HOME=/data
 ENV HERMES_HOME=/data/.hermes
 
-# _hermes_ink_bundle_stale() check (which still looks for the old ink-bundle.js filename, but v5.7's build produces entry-exports.js)
-# always returns True, triggering a full `npm run build` inside every /chat WebSocket request. Setting HERMES_TUI_DIR routes through the
-# early-return path in _make_tui_argv that skips staleness detection entirely. Upstream bug; remove this when v2026.5.x ships the fix.
-ENV HERMES_TUI_DIR=/opt/hermes-agent/ui-tui
 
 # tini wraps start.sh so it runs as PID 1's child instead of as PID 1 itself.
 # `-g` propagates signals to the whole process group so `docker stop` /
