@@ -795,20 +795,50 @@ async def api_pairing_revoke(request: Request):
 
 
 # ── Reverse proxy → Hermes dashboard ──────────────────────────────────────────
-_WIDGET_LINK_STYLE = (
-    "background:rgba(20,24,31,0.92);backdrop-filter:blur(8px);"
-    "border:1px solid #252d3d;border-radius:6px;padding:6px 12px;"
-    "color:#c9d1d9;text-decoration:none;display:inline-flex;"
-    "align-items:center;gap:6px;"
-)
-BACK_TO_SETUP_WIDGET = (
-    '<div id="hermes-back-widget" style="position:fixed;bottom:14px;right:14px;'
-    'z-index:99999;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'
-    'font-size:11px;display:flex;gap:8px;">'
-    f'<a href="/setup" style="{_WIDGET_LINK_STYLE}">← Setup</a>'
-    f'<a href="/logout" style="{_WIDGET_LINK_STYLE}">Sign out</a>'
-    '</div>'
-)
+# Floating "back-to-setup" widget injected before </body> on every proxied HTML
+# page. Styled on the Dayshift Systems design system (Ivory & Ink): collapsed
+# 32×32 ivory-bordered tile at rest, expands on :hover / :focus-within to reveal
+# Setup + Sign out links. All selectors are scoped under #hermes-back-widget so
+# styles can't leak into the proxied Hermes dashboard.
+BACK_TO_SETUP_WIDGET = """\
+<style>
+#hermes-back-widget{position:fixed;bottom:14px;right:14px;z-index:99999;\
+display:inline-flex;align-items:stretch;border-radius:8px;\
+background:rgba(24,24,20,0.6);border:1px solid rgba(255,255,227,0.10);\
+backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);overflow:hidden;\
+font-family:"Inter Tight",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;\
+transition:border-color 400ms cubic-bezier(0.25,0.46,0.45,0.94),\
+background-color 400ms cubic-bezier(0.25,0.46,0.45,0.94)}
+#hermes-back-widget:hover,#hermes-back-widget:focus-within{\
+border-color:rgba(255,255,227,0.30);background:#181814}
+#hermes-back-widget .hbw-link{display:inline-flex;align-items:center;\
+height:32px;max-width:0;padding:0;margin:0;color:rgba(255,255,227,0.90);\
+font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;\
+text-decoration:none;white-space:nowrap;overflow:hidden;opacity:0;\
+transition:max-width 400ms cubic-bezier(0.25,0.46,0.45,0.94),\
+padding 400ms cubic-bezier(0.25,0.46,0.45,0.94),\
+opacity 200ms cubic-bezier(0.25,0.46,0.45,0.94),\
+background-color 400ms cubic-bezier(0.25,0.46,0.45,0.94),\
+color 400ms cubic-bezier(0.25,0.46,0.45,0.94)}
+#hermes-back-widget:hover .hbw-link,#hermes-back-widget:focus-within .hbw-link{\
+max-width:140px;padding:0 12px;opacity:1}
+#hermes-back-widget .hbw-link:hover{color:#FFFFE3;background:rgba(255,255,227,0.05)}
+#hermes-back-widget .hbw-link:focus-visible{outline:2px solid #7A9E90;outline-offset:-2px}
+#hermes-back-widget .hbw-trigger{display:inline-flex;align-items:center;\
+justify-content:center;width:32px;height:32px;color:rgba(255,255,227,0.60);\
+flex-shrink:0;transition:color 400ms cubic-bezier(0.25,0.46,0.45,0.94)}
+#hermes-back-widget:hover .hbw-trigger,#hermes-back-widget:focus-within .hbw-trigger{\
+color:rgba(255,255,227,0.90)}
+</style>
+<div id="hermes-back-widget" role="navigation" aria-label="Setup actions">\
+<a class="hbw-link" href="/setup">← Setup</a>\
+<a class="hbw-link" href="/logout">Sign out</a>\
+<span class="hbw-trigger" aria-hidden="true">\
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" \
+stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">\
+<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/>\
+<line x1="4" y1="18" x2="20" y2="18"/></svg></span></div>\
+"""
 
 DASHBOARD_UNAVAILABLE_HTML = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>Dashboard starting…</title>
