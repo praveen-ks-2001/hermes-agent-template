@@ -6,77 +6,159 @@
 <title>Hermes Agent</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <style>
+  /* =========================================================================
+     Dayshift Systems — Ivory & Ink (Dark Mode, Luxury)
+     Tokens lifted directly from dayshift-systems-design-system/colors_and_type.css
+     ========================================================================= */
   :root {
-    --bg:        #0d0f14;
-    --surface:   #14181f;
-    --surface2:  #1c2230;
-    --border:    #252d3d;
-    --text:      #c9d1d9;
-    --text-dim:  #6b7688;
-    --accent:    #6272ff;
-    --accent2:   #7b8fff;
-    --green:     #3fb950;
-    --yellow:    #d29922;
-    --red:       #f85149;
-    --font-mono: 'IBM Plex Mono', monospace;
-    --font-sans: 'IBM Plex Sans', sans-serif;
-    --sidebar-w: 220px;
-    --header-h:  52px;
+    /* Core palette */
+    --ds-bg:        #10100E;
+    --ds-surface:   #161614;
+    --ds-elevated:  #1E1E1C;
+    --ds-muted:     #606058;
+    --ds-secondary: #9A9888;
+    --ds-accent:    #7A9E90;  /* muted jade — sparingly */
+    --ds-primary:   #FFFFE3;  /* ivory */
+
+    /* Translucent ivory ladder */
+    --iv-95: rgba(255,255,227,0.95);
+    --iv-90: rgba(255,255,227,0.90);
+    --iv-80: rgba(255,255,227,0.80);
+    --iv-60: rgba(255,255,227,0.60);
+    --iv-40: rgba(255,255,227,0.40);
+    --iv-30: rgba(255,255,227,0.30);
+    --iv-18: rgba(255,255,227,0.18);
+    --iv-10: rgba(255,255,227,0.10);
+    --iv-05: rgba(255,255,227,0.05);
+
+    --surface-60: rgba(24,24,20,0.6);
+    --surface-40: rgba(24,24,20,0.4);
+
+    /* System / status (luxury-desaturated) */
+    --sys-blue:   #8898AA;
+    --sys-red:    #B88078;
+    --sys-green:  #80A488;
+    --sys-yellow: #B8A868;
+
+    --font-body: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --ease-luxe: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    --dur-fast:  200ms;
+    --dur-base:  400ms;
+    --dur-slow:  600ms;
+
+    --header-h:  64px;
+    --sidebar-w: 240px;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-sans);
+    background: var(--ds-bg);
+    color: var(--ds-primary);
+    font-family: var(--font-body);
     font-size: 14px;
+    line-height: 1.55;
     height: 100vh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   [x-cloak] { display: none !important; }
 
+  /* Inline SVG icons — strict 1.5px stroke, currentColor, line-only.
+     Geometry follows Lucide; we ship only the icons we use. */
+  .icon {
+    width: 16px; height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+  }
+  .icon.lg { width: 20px; height: 20px; }
+  .icon.xs { width: 14px; height: 14px; }
+  .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+  a { color: inherit; text-decoration: none; }
+
+  /* Ivory link — sweeping jade underline on hover (.ds-link from design system) */
+  .ds-link {
+    color: inherit;
+    background-image: linear-gradient(var(--ds-accent), var(--ds-accent));
+    background-size: 0 1px;
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    transition: background-size var(--dur-base) var(--ease-luxe);
+  }
+  .ds-link:hover { background-size: 100% 1px; }
+
   /* ── Header ───────────────────────────────────────── */
   #header {
     height: var(--header-h);
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
+    background: var(--ds-bg);
+    border-bottom: 1px solid var(--iv-10);
     display: flex;
     align-items: center;
-    padding: 0 20px;
-    gap: 12px;
+    padding: 0 28px;
+    gap: 20px;
     flex-shrink: 0;
+    backdrop-filter: blur(4px);
   }
 
-  .logo {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 16px;
-    color: var(--accent);
-    letter-spacing: -0.5px;
+  .wordmark {
+    display: flex;
+    flex-direction: column;
+    line-height: 1;
     user-select: none;
   }
-  .logo span { color: var(--text-dim); font-weight: 400; }
+  .wordmark .top {
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+    color: var(--ds-primary);
+  }
+  .wordmark .sub {
+    font-family: var(--font-body);
+    font-weight: 300;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--iv-60);
+    margin-top: 3px;
+  }
+
+  .status-cluster {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 20px;
+    border-left: 1px solid var(--iv-10);
+    margin-left: 4px;
+  }
 
   .status-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
-    background: var(--text-dim);
-    transition: background 0.3s;
+    background: var(--ds-muted);
+    transition: background var(--dur-base) var(--ease-luxe);
     flex-shrink: 0;
   }
-  .status-dot.running  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.running  { background: var(--ds-accent); box-shadow: 0 0 0 3px rgba(122,158,144,0.20); }
   .status-dot.starting,
-  .status-dot.stopping { background: var(--yellow); animation: pulse 1s infinite; }
+  .status-dot.stopping { background: var(--sys-yellow); animation: pulse 1.6s var(--ease-luxe) infinite; }
   .status-dot.error,
-  .status-dot.crashed  { background: var(--red); }
-  .status-dot.stopped  { background: var(--text-dim); }
+  .status-dot.crashed  { background: var(--sys-red); }
+  .status-dot.stopped  { background: var(--ds-muted); }
 
   @keyframes pulse {
     0%, 100% { opacity: 1; }
@@ -85,36 +167,108 @@
 
   #status-label {
     font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--iv-60);
   }
 
   .header-spacer { flex: 1; }
 
-  .header-btn {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 5px 12px;
-    border-radius: 6px;
-    font-family: var(--font-mono);
+  /* ── Buttons ──────────────────────────────────────────
+     Primary = ivory bg, ink text (inverted on dark).
+     Outline = transparent, ivory-30 border. Hover lifts border to ivory.
+     System variants only used in dashboard contexts (start/stop/danger). */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--iv-30);
+    background: transparent;
+    color: var(--ds-primary);
+    font-family: var(--font-body);
+    font-weight: 500;
     font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
+    transition: all var(--dur-base) var(--ease-luxe);
+    user-select: none;
+    white-space: nowrap;
   }
-  .header-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn:hover {
+    border-color: var(--ds-primary);
+    transform: translateY(-1px);
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    transform: none;
+    border-color: var(--iv-30);
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--ds-accent);
+    outline-offset: 2px;
+  }
 
-  .header-issue-link {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dim);
-    text-decoration: none;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 5px 10px;
-    transition: border-color 0.15s, color 0.15s;
+  .btn.primary {
+    background: var(--ds-primary);
+    border-color: var(--ds-primary);
+    color: var(--ds-bg);
   }
-  .header-issue-link:hover { border-color: #e5534b; color: #e5534b; }
+  .btn.primary:hover {
+    background: var(--iv-90);
+    border-color: var(--iv-90);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+  }
+
+  .btn.danger {
+    border-color: rgba(184,128,120,0.4);
+    color: var(--sys-red);
+  }
+  .btn.danger:hover {
+    background: var(--sys-red);
+    border-color: var(--sys-red);
+    color: var(--ds-bg);
+  }
+
+  .btn.success {
+    border-color: rgba(128,164,136,0.4);
+    color: var(--sys-green);
+  }
+  .btn.success:hover {
+    background: var(--sys-green);
+    border-color: var(--sys-green);
+    color: var(--ds-bg);
+  }
+
+  .btn.sm { padding: 6px 12px; font-size: 11px; letter-spacing: 0.05em; }
+
+  /* Header inline buttons read smaller / quieter */
+  .header-btn {
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--iv-30);
+    background: transparent;
+    color: var(--ds-primary);
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all var(--dur-base) var(--ease-luxe);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .header-btn:hover { border-color: var(--ds-primary); transform: translateY(-1px); }
+  .header-btn.muted { border-color: var(--iv-10); color: var(--iv-60); }
+  .header-btn.muted:hover { border-color: var(--iv-30); color: var(--ds-primary); }
 
   /* ── Layout ───────────────────────────────────────── */
   #layout {
@@ -126,92 +280,90 @@
   /* ── Sidebar ──────────────────────────────────────── */
   #sidebar {
     width: var(--sidebar-w);
-    background: var(--surface);
-    border-right: 1px solid var(--border);
+    background: var(--ds-bg);
+    border-right: 1px solid var(--iv-10);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    padding: 12px 0;
+    padding: 24px 0 16px;
     overflow-y: auto;
   }
 
   .nav-group-label {
     font-family: var(--font-mono);
     font-size: 10px;
-    letter-spacing: 1.5px;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--text-dim);
-    padding: 8px 16px 4px;
+    color: var(--iv-40);
+    padding: 14px 24px 8px;
   }
 
   .nav-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 16px;
+    gap: 12px;
+    padding: 9px 24px;
     cursor: pointer;
-    color: var(--text-dim);
+    color: var(--iv-60);
     border-left: 2px solid transparent;
-    transition: all 0.15s;
-    font-size: 13.5px;
+    transition: all var(--dur-base) var(--ease-luxe);
+    font-size: 13px;
+    font-weight: 400;
     user-select: none;
     position: relative;
   }
-  .nav-item:hover  { color: var(--text); background: var(--surface2); }
-  .nav-item.active { color: var(--text); border-left-color: var(--accent); background: var(--surface2); }
-  .nav-item.locked { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
-  .nav-item.danger { color: var(--red); }
-  .nav-item.danger:hover { color: var(--red); background: rgba(248,81,73,0.08); border-left-color: var(--red); }
+  .nav-item:hover  { color: var(--ds-primary); background: var(--iv-05); }
+  .nav-item.active {
+    color: var(--ds-primary);
+    border-left-color: var(--ds-primary);
+    background: var(--iv-05);
+  }
+  .nav-item.locked { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+  .nav-item.danger { color: var(--iv-60); }
+  .nav-item.danger:hover { color: var(--sys-red); background: rgba(184,128,120,0.06); border-left-color: var(--sys-red); }
 
-  /* Dashboard is a *link out* to the native hermes UI, not a tab in this
-     wrapper. Style it as a pill/CTA so it reads differently from the
-     "active tab" indicator (which uses a left border + surface2 bg). */
+  /* Hermes Dashboard nav is a link OUT — styled as primary CTA pill so it
+     reads differently from the in-page tabs (left-border indicator). */
   .nav-item.highlight {
-    color: #fff;
-    background: var(--accent);
+    margin: 6px 16px;
+    padding: 10px 14px;
+    background: var(--ds-primary);
+    color: var(--ds-bg);
     border-left-color: transparent;
+    border-radius: 8px;
     font-weight: 500;
-    margin: 4px 12px;
-    padding: 8px 12px;
-    border-radius: 7px;
-    box-shadow: 0 2px 10px rgba(98,114,255,0.25);
-    transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
   }
   .nav-item.highlight:hover {
-    background: var(--accent2);
-    transform: translateX(1px);
-    box-shadow: 0 3px 14px rgba(98,114,255,0.40);
+    background: var(--iv-90);
+    transform: translateY(-1px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
   }
-  .nav-item.highlight .nav-icon { color: #fff; }
   .nav-item.highlight .nav-arrow {
     margin-left: auto;
-    color: #fff;
-    font-family: var(--font-mono);
-    font-size: 14px;
-    transition: transform 0.15s;
+    font-family: var(--font-body);
+    font-weight: 400;
+    transition: transform var(--dur-base) var(--ease-luxe);
   }
   .nav-item.highlight:hover .nav-arrow { transform: translateX(3px); }
 
-  .nav-icon { font-size: 15px; width: 18px; text-align: center; }
-
   .nav-badge {
     position: absolute;
-    right: 14px;
-    background: var(--accent);
-    color: white;
+    right: 18px;
+    background: var(--sys-yellow);
+    color: var(--ds-bg);
     font-size: 10px;
     font-family: var(--font-mono);
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 8px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 999px;
     display: none;
   }
-  .nav-badge.visible { display: inline-block; animation: pulse 1.5s infinite; }
+  .nav-badge.visible { display: inline-block; }
 
   .nav-divider {
     height: 1px;
-    background: var(--border);
-    margin: 8px 16px;
+    background: var(--iv-10);
+    margin: 12px 24px;
   }
 
   /* ── Main content ─────────────────────────────────── */
@@ -220,6 +372,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    background: var(--ds-bg);
   }
 
   .panel {
@@ -231,194 +384,264 @@
   .panel.active { display: flex; }
 
   .panel-header {
-    padding: 16px 24px 12px;
-    border-bottom: 1px solid var(--border);
+    padding: 24px 32px 20px;
+    border-bottom: 1px solid var(--iv-10);
     display: flex;
-    align-items: center;
-    gap: 12px;
+    align-items: baseline;
+    gap: 16px;
     flex-shrink: 0;
   }
-
   .panel-title {
-    font-family: var(--font-mono);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ds-primary);
   }
   .panel-subtitle {
-    font-size: 12px;
-    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--iv-60);
     margin-left: auto;
   }
 
   .panel-body {
     flex: 1;
     overflow-y: auto;
-    padding: 20px 24px;
+    padding: 28px 32px 32px;
   }
 
-  /* ── Buttons ──────────────────────────────────────── */
-  .btn {
-    padding: 7px 16px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-    background: var(--surface2);
-    color: var(--text);
-  }
-  .btn:hover    { border-color: var(--accent); color: var(--accent); }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn.primary  { background: var(--accent); border-color: var(--accent); color: white; }
-  .btn.primary:hover { background: var(--accent2); border-color: var(--accent2); color: white; }
-  .btn.danger   { border-color: var(--red);   color: var(--red); }
-  .btn.danger:hover  { background: var(--red);   color: white; }
-  .btn.success  { border-color: var(--green); color: var(--green); }
-  .btn.success:hover { background: var(--green); color: #0d0f14; }
-  .btn.sm { padding: 4px 10px; font-size: 11px; }
-
-  /* ── Form ─────────────────────────────────────────── */
-  .field-label {
-    display: block;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 5px;
-  }
-
-  input[type=text], input[type=password], select {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 7px 10px;
-    font-size: 13px;
-    font-family: var(--font-mono);
-    width: 100%;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-  input[type=text]:focus, input[type=password]:focus, select:focus { border-color: var(--accent); }
-  input::placeholder { color: var(--text-dim); opacity: 0.5; }
-  input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
-
-  select {
-    cursor: pointer;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%236b7688' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    padding-right: 32px;
-  }
-  select option { background: var(--surface2); }
-
-  /* ── Cards ────────────────────────────────────────── */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 12px;
-  }
-
+  /* ── Section labels & callouts ────────────────────── */
   .section-label {
     font-family: var(--font-mono);
     font-size: 11px;
-    letter-spacing: 1px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 10px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
+    color: var(--iv-60);
+    margin: 24px 0 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--iv-10);
     display: flex;
-    align-items: center;
-    gap: 8px;
+    align-items: baseline;
+    gap: 10px;
   }
+  .section-label:first-child { margin-top: 0; }
   .section-label .req-note {
-    color: var(--accent);
+    color: var(--iv-40);
     font-size: 10px;
-    letter-spacing: 0;
+    letter-spacing: 0.06em;
     text-transform: none;
+    font-family: var(--font-body);
   }
 
-  .card-title {
-    font-family: var(--font-mono);
+  .callout {
+    background: var(--surface-60);
+    border: 1px solid var(--iv-10);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
     font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 12px;
+    color: var(--iv-80);
+    line-height: 1.6;
+    backdrop-filter: blur(4px);
+  }
+  .callout a { color: var(--ds-primary); }
+
+  /* ── Cards (signature translucent + backdrop blur) ── */
+  .card {
+    background: var(--surface-60);
+    border: 1px solid var(--iv-10);
+    border-radius: 8px;
+    padding: 22px;
+    margin-bottom: 14px;
+    backdrop-filter: blur(4px);
+    transition: all var(--dur-slow) var(--ease-luxe);
+  }
+  .card.flush { padding: 0; }
+  .card.flush > :first-child { border-top: none; }
+
+  .card-title {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 300;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ds-primary);
+    margin-bottom: 14px;
   }
 
   .field-grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 16px;
   }
+
+  /* ── Form ─────────────────────────────────────────── */
+  .field-label {
+    display: block;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--iv-60);
+    margin-bottom: 7px;
+  }
+
+  input[type=text], input[type=password], select, textarea {
+    background: var(--surface-60);
+    border: 1px solid var(--iv-10);
+    color: var(--ds-primary);
+    border-radius: 8px;
+    padding: 11px 14px;
+    font-size: 13px;
+    font-family: var(--font-body);
+    font-weight: 400;
+    width: 100%;
+    outline: none;
+    transition: border-color var(--dur-fast) var(--ease-luxe);
+  }
+  input[type=text]:focus, input[type=password]:focus, select:focus, textarea:focus {
+    border-color: var(--iv-30);
+    outline: 2px solid var(--ds-accent);
+    outline-offset: 2px;
+  }
+  input::placeholder, textarea::placeholder { color: var(--iv-40); }
+
+  input[type=checkbox] {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--iv-30);
+    border-radius: 4px;
+    background: var(--surface-60);
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    transition: all var(--dur-fast) var(--ease-luxe);
+  }
+  input[type=checkbox]:hover { border-color: var(--ds-primary); }
+  input[type=checkbox]:checked {
+    background: var(--ds-primary);
+    border-color: var(--ds-primary);
+  }
+  input[type=checkbox]:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px; top: 1px;
+    width: 5px; height: 9px;
+    border: solid var(--ds-bg);
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+  input[type=checkbox]:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: 2px; }
+
+  select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23FFFFE3' fill-opacity='0.6' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+  }
+  select option { background: var(--ds-elevated); color: var(--ds-primary); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    color: var(--ds-primary);
+    background: var(--iv-05);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .hint {
+    font-size: 12px;
+    color: var(--iv-60);
+    margin-top: 7px;
+    line-height: 1.6;
+  }
+  .field-gap { margin-top: 14px; }
 
   /* ── Channel / tool toggles ───────────────────────── */
   .toggle-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--iv-10);
     cursor: pointer;
     user-select: none;
+    transition: background var(--dur-fast) var(--ease-luxe);
   }
+  .toggle-row:hover { background: var(--iv-05); }
   .toggle-row:last-child { border-bottom: none; }
   .toggle-label {
-    font-family: var(--font-mono);
+    font-family: var(--font-body);
     font-size: 13px;
     font-weight: 500;
+    color: var(--ds-primary);
   }
-  .toggle-icon { font-size: 16px; }
+  .toggle-icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: var(--ds-primary);
+    color: var(--ds-bg);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .toggle-icon .icon { width: 16px; height: 16px; }
 
   .toggle-body {
-    padding: 14px 0 6px 26px;
-    border-bottom: 1px solid var(--border);
+    padding: 16px 22px 18px 66px;
+    border-bottom: 1px solid var(--iv-10);
   }
   .toggle-body:last-child { border-bottom: none; }
+  .toggle-row.no-body { border-bottom: none; }
 
   /* ── Stat grid ────────────────────────────────────── */
   .stat-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 12px;
-    margin-bottom: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
   }
 
   .stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--surface-60);
+    border: 1px solid var(--iv-10);
     border-radius: 8px;
-    padding: 16px;
+    padding: 20px;
+    backdrop-filter: blur(4px);
   }
 
   .stat-label {
     font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 1px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 8px;
+    color: var(--iv-60);
+    margin-bottom: 12px;
   }
 
   .stat-value {
-    font-family: var(--font-mono);
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ds-primary);
   }
-  .stat-value.green  { color: var(--green); }
-  .stat-value.red    { color: var(--red); }
-  .stat-value.yellow { color: var(--yellow); }
+  .stat-value.green  { color: var(--sys-green); }
+  .stat-value.red    { color: var(--sys-red); }
+  .stat-value.yellow { color: var(--sys-yellow); }
+  .stat-value.accent { color: var(--ds-accent); }
 
   /* ── Action row ───────────────────────────────────── */
-  .action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 28px; }
 
   /* ── Logs ─────────────────────────────────────────── */
   #log-view {
@@ -426,279 +649,289 @@
     overflow-y: auto;
     font-family: var(--font-mono);
     font-size: 12px;
-    line-height: 1.6;
-    padding: 12px 16px;
-    background: #0a0c10;
+    line-height: 1.7;
+    padding: 18px 28px;
+    background: var(--ds-bg);
+    color: var(--iv-80);
   }
 
   .log-line {
     padding: 1px 0;
-    color: var(--text);
     word-break: break-all;
     white-space: pre-wrap;
   }
 
-  /* ── Chips ────────────────────────────────────────── */
+  /* ── Chips / pills ────────────────────────────────── */
   .chip {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-family: var(--font-mono);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--iv-18);
+    font-family: var(--font-body);
     font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--iv-80);
   }
-  .chip.green { background: rgba(63,185,80,0.15);  color: var(--green); }
-  .chip.dim   { background: rgba(255,255,255,0.04); color: var(--text-dim); }
+  .chip .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--iv-30);
+    flex-shrink: 0;
+  }
+  .chip.green {
+    border-color: rgba(122,158,144,0.4);
+    color: var(--ds-primary);
+  }
+  .chip.green .dot {
+    background: var(--ds-accent);
+    box-shadow: 0 0 0 3px rgba(122,158,144,0.2);
+  }
+  .chip.dim { color: var(--iv-40); }
 
   /* ── Table ────────────────────────────────────────── */
   .data-table { width: 100%; border-collapse: collapse; }
   .data-table th {
     text-align: left;
-    padding: 8px 12px;
+    padding: 12px 16px;
     font-family: var(--font-mono);
     font-size: 10px;
-    letter-spacing: 1px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--text-dim);
-    border-bottom: 1px solid var(--border);
+    color: var(--iv-60);
+    font-weight: 500;
+    border-bottom: 1px solid var(--iv-10);
   }
   .data-table td {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--iv-10);
     font-size: 13px;
+    color: var(--ds-primary);
   }
   .data-table tr:last-child td { border-bottom: none; }
-  .data-table tr:hover td { background: var(--surface2); }
+  .data-table tr:hover td { background: var(--iv-05); }
 
   /* ── Pair cards ───────────────────────────────────── */
   .pair-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--surface-60);
+    border: 1px solid var(--iv-10);
     border-radius: 8px;
-    padding: 14px 16px;
+    padding: 16px 20px;
     margin-bottom: 10px;
     display: flex;
     align-items: center;
     gap: 14px;
+    backdrop-filter: blur(4px);
+    transition: all var(--dur-base) var(--ease-luxe);
   }
-  .pair-card.pending { border-color: var(--yellow); }
+  .pair-card.pending { border-color: rgba(184,168,104,0.35); }
 
   /* ── Save bar ─────────────────────────────────────── */
   .save-bar {
-    padding: 12px 24px;
-    border-top: 1px solid var(--border);
-    background: var(--surface);
+    padding: 16px 32px;
+    border-top: 1px solid var(--iv-10);
+    background: var(--ds-bg);
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
-    gap: 12px;
+    gap: 14px;
   }
 
   /* ── Toast ────────────────────────────────────────── */
   #toast {
     position: fixed;
-    bottom: 24px;
-    right: 24px;
-    padding: 10px 18px;
+    bottom: 28px;
+    right: 28px;
+    padding: 12px 18px;
     border-radius: 8px;
-    font-family: var(--font-mono);
+    font-family: var(--font-body);
     font-size: 13px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text);
+    background: var(--ds-elevated);
+    border: 1px solid var(--iv-10);
+    color: var(--ds-primary);
     display: none;
     z-index: 999;
     max-width: 360px;
-    animation: slideIn 0.2s ease;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    animation: slideIn var(--dur-base) var(--ease-luxe);
   }
   @keyframes slideIn {
-    from { transform: translateY(10px); opacity: 0; }
-    to   { transform: translateY(0);    opacity: 1; }
+    from { transform: translateY(8px); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
   }
-  #toast.ok  { border-color: var(--green); color: var(--green); }
-  #toast.err { border-color: var(--red);   color: var(--red);   }
+  #toast.ok  { border-color: rgba(122,158,144,0.5); }
+  #toast.err { border-color: rgba(184,128,120,0.5); color: var(--sys-red); }
 
-  /* ── Misc ─────────────────────────────────────────── */
-  ::-webkit-scrollbar { width: 6px; }
+  /* ── Scrollbar ────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+  ::-webkit-scrollbar-thumb { background: var(--iv-10); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--iv-30); }
 
   .empty-state {
-    color: var(--text-dim);
-    font-family: var(--font-mono);
+    color: var(--iv-40);
+    font-family: var(--font-body);
     font-size: 13px;
-    padding: 32px 0;
+    padding: 40px 0;
     text-align: center;
   }
-  .hint { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
-  code { font-family: var(--font-mono); color: var(--accent); }
-  .field-gap { margin-top: 12px; }
 
-  /* ── Guide steps ─────────────────────────────────── */
-  .guide-section {
-    margin-bottom: 28px;
-  }
+  /* ── Guide / process-step ─────────────────────────── */
+  .guide-section { margin-bottom: 40px; }
+
   .guide-section-title {
-    font-family: var(--font-mono);
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--accent);
-    margin-bottom: 14px;
-    display: flex;
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: 18px;
     align-items: center;
-    gap: 10px;
+    margin-bottom: 22px;
   }
   .guide-section-title .guide-num {
-    background: var(--accent);
-    color: #fff;
-    width: 24px; height: 24px;
-    border-radius: 50%;
+    width: 48px; height: 48px;
+    border-radius: 8px;
+    background: var(--ds-primary);
+    color: var(--ds-bg);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
-    font-weight: 600;
-    flex-shrink: 0;
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 16px;
   }
+  .guide-section-title .guide-heading {
+    font-family: var(--font-body);
+    font-size: 18px;
+    font-weight: 300;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ds-primary);
+  }
+  .guide-section-lead {
+    font-size: 13px;
+    color: var(--iv-80);
+    margin-bottom: 18px;
+    line-height: 1.6;
+    padding-left: 66px;
+  }
+
   .step-list {
     list-style: none;
-    padding: 0;
-    counter-reset: step;
+    padding: 0 0 0 66px;
+    margin: 0;
   }
   .step-list li {
     position: relative;
-    padding: 10px 0 10px 36px;
-    border-left: 2px solid var(--border);
-    margin-left: 11px;
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--text);
+    padding: 4px 0 18px 22px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--ds-primary);
   }
-  .step-list li:last-child { border-left-color: transparent; }
   .step-list li::before {
-    counter-increment: step;
-    content: counter(step);
+    content: "";
     position: absolute;
-    left: -8px;
-    top: 10px;
-    width: 16px; height: 16px;
+    left: 0;
+    top: 11px;
+    width: 6px; height: 6px;
     border-radius: 50%;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    background: var(--ds-accent);
   }
   .step-list li a {
-    color: var(--accent2);
-    text-decoration: none;
+    background-image: linear-gradient(var(--ds-accent), var(--ds-accent));
+    background-size: 0 1px;
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    transition: background-size var(--dur-base) var(--ease-luxe);
+    color: var(--ds-primary);
   }
-  .step-list li a:hover { text-decoration: underline; }
+  .step-list li a:hover { background-size: 100% 1px; }
   .step-list .step-note {
     display: block;
-    font-size: 12px;
-    color: var(--text-dim);
-    margin-top: 4px;
+    font-size: 13px;
+    color: var(--iv-60);
+    margin-top: 6px;
   }
 
-  /* ── Template cards ──────────────────────────────── */
-  .template-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 14px;
-  }
-  .template-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
+  .guide-callout {
+    background: var(--surface-60);
+    border: 1px solid var(--iv-10);
     border-radius: 8px;
-    padding: 18px;
-    transition: border-color 0.15s;
+    padding: 18px 22px;
+    margin-top: 32px;
+    font-size: 13px;
+    color: var(--iv-80);
+    line-height: 1.65;
+    backdrop-filter: blur(4px);
   }
-  .template-card:hover { border-color: var(--accent); }
-  .template-card-name {
-    font-family: var(--font-mono);
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 8px;
-  }
-  .template-card-desc {
-    font-size: 12px;
-    color: var(--text-dim);
-    line-height: 1.5;
-    margin-bottom: 14px;
-  }
-  .template-card .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    text-decoration: none;
-  }
+  .guide-callout a { color: var(--ds-primary); }
 
-  /* ── Header branding ──────────────────────────────── */
-  .header-branding {
+  /* ── Allow-all gateway toggle row (standalone card) ── */
+  .gateway-toggle {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dim);
+    gap: 14px;
+    padding: 16px 20px;
   }
-  .header-branding img {
-    width: 16px;
-    height: 16px;
-    border-radius: 3px;
-    object-fit: contain;
-  }
-  .header-branding a {
-    color: var(--text-dim);
-    text-decoration: none;
-    transition: color 0.15s;
-  }
-  .header-branding a:hover { color: var(--accent); }
-
-  /* ── Guide callout ───────────────────────────────── */
-  .guide-callout {
-    background: rgba(98,114,255,0.06);
-    border: 1px solid rgba(98,114,255,0.2);
-    border-radius: 8px;
-    padding: 14px 16px;
-    margin-top: 20px;
+  .gateway-toggle .label {
     font-size: 13px;
-    color: var(--text);
-    line-height: 1.6;
-  }
-  .guide-callout a {
-    color: #e5534b;
-    text-decoration: none;
     font-weight: 500;
+    color: var(--ds-primary);
   }
-  .guide-callout a:hover { text-decoration: underline; }
 </style>
 </head>
 <body x-data="app()" x-init="init()" x-cloak>
 
+<!-- SVG icon sprite — referenced by <svg><use href="#i-name"/></svg> -->
+<svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-rotate-cw" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+    <symbol id="i-hexagon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 3.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 13H2"/></symbol>
+    <symbol id="i-scroll-text" viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-book-open" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+    <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></symbol>
+    <symbol id="i-gamepad-2" viewBox="0 0 24 24"><line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="18" y1="10" x2="18.01" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></symbol>
+    <symbol id="i-hash" viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+    <symbol id="i-messages-square" viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></symbol>
+    <symbol id="i-message-circle" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+    <symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+  </defs>
+</svg>
+
 <!-- Header -->
 <div id="header">
-  <img src="https://pbs.twimg.com/profile_images/1816254738234761216/TX7TW-Mp_400x400.jpg"
-       alt="Hermes" style="width:28px;height:28px;border-radius:6px;flex-shrink:0;">
-  <div class="logo">hermes<span>/admin</span></div>
-  <div class="status-dot" :class="gw.state||'stopped'"></div>
-  <div id="status-label" x-text="gw.state||'stopped'"></div>
-  <div class="header-spacer"></div>
-  <div class="header-branding">
-    <span>made with ♥ by</span>
-    <img src="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/heimdall-light.svg" alt="Heimdall">
-    <a href="https://github.com/praveen-ks-2001" target="_blank" rel="noopener">Heimdall</a>
+  <div class="wordmark">
+    <span class="top">hermes</span>
+    <span class="sub">Admin</span>
   </div>
+
+  <div class="status-cluster">
+    <div class="status-dot" :class="gw.state||'stopped'"></div>
+    <div id="status-label" x-text="gw.state||'stopped'"></div>
+  </div>
+
   <div class="header-spacer"></div>
-  <a class="header-issue-link" href="https://github.com/praveen-ks-2001/hermes-agent-template/issues" target="_blank" rel="noopener">⚠ Report issue</a>
-  <button class="header-btn" @click="restartGateway()">↺ Restart</button>
+
+  <a class="header-btn muted" href="https://github.com/kevinledev/hermes-agent-template/issues" target="_blank" rel="noopener">
+    <svg class="icon xs"><use href="#i-alert-triangle"/></svg>
+    Report issue
+  </a>
+  <button class="header-btn" @click="restartGateway()">
+    <svg class="icon xs"><use href="#i-rotate-cw"/></svg>
+    Restart
+  </button>
 </div>
 
 <!-- Layout -->
@@ -709,61 +942,57 @@
 
     <div class="nav-group-label">Setup</div>
     <div class="nav-item" :class="{active: page==='setup'}" @click="page='setup'">
-      <span class="nav-icon">⚡</span>
+      <svg class="icon"><use href="#i-zap"/></svg>
       <span>Setup</span>
     </div>
 
-    <div class="nav-group-label" style="margin-top:8px">Dashboard</div>
+    <div class="nav-group-label">Dashboard</div>
     <div class="nav-item highlight"
          @click="window.location.href='/?force=1'"
          title="Open the native Hermes dashboard — providers, skills, analytics, sessions">
-      <span class="nav-icon">⬢</span>
+      <svg class="icon"><use href="#i-hexagon"/></svg>
       <span>Hermes Dashboard</span>
       <span class="nav-arrow">→</span>
     </div>
 
-    <div class="nav-group-label" style="margin-top:8px">Monitor</div>
+    <div class="nav-group-label">Monitor</div>
     <div class="nav-item"
          :class="{active: page==='status', locked: !isSetupDone}"
          @click="isSetupDone && (page='status')">
-      <span class="nav-icon">◎</span>
+      <svg class="icon"><use href="#i-activity"/></svg>
       <span>Status</span>
     </div>
     <div class="nav-item"
          :class="{active: page==='logs', locked: !isSetupDone}"
          @click="isSetupDone && (page='logs')">
-      <span class="nav-icon">≡</span>
+      <svg class="icon"><use href="#i-scroll-text"/></svg>
       <span>Logs</span>
     </div>
 
-    <div class="nav-group-label" style="margin-top:8px">Manage</div>
+    <div class="nav-group-label">Manage</div>
     <div class="nav-item"
          :class="{active: page==='users', locked: !isSetupDone}"
          @click="isSetupDone && (page='users')">
-      <span class="nav-icon">◈</span>
+      <svg class="icon"><use href="#i-users"/></svg>
       <span>Users</span>
       <span class="nav-badge" :class="{visible: pendingCount>0}" x-text="pendingCount"></span>
     </div>
 
-    <div class="nav-group-label" style="margin-top:8px">Resources</div>
+    <div class="nav-group-label">Resources</div>
     <div class="nav-item" :class="{active: page==='guide'}" @click="page='guide'">
-      <span class="nav-icon">📖</span>
+      <svg class="icon"><use href="#i-book-open"/></svg>
       <span>How to Setup</span>
-    </div>
-    <div class="nav-item" :class="{active: page==='templates'}" @click="page='templates'">
-      <span class="nav-icon">🚀</span>
-      <span>Other Templates</span>
     </div>
 
     <div class="nav-divider" style="margin-top:auto;"></div>
 
     <div class="nav-item danger" @click="resetConfig()">
-      <span class="nav-icon">⊘</span>
+      <svg class="icon"><use href="#i-rotate-ccw"/></svg>
       <span>Reset Config</span>
     </div>
 
     <div class="nav-item" @click="window.location.href='/logout'">
-      <span class="nav-icon">↪</span>
+      <svg class="icon"><use href="#i-log-out"/></svg>
       <span>Sign out</span>
     </div>
 
@@ -780,22 +1009,22 @@
       </div>
       <div class="panel-body">
 
-        <div style="background:rgba(98,114,255,0.06);border:1px solid rgba(98,114,255,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--text-dim);">
-          New to Hermes? Head over to the <a href="#" @click.prevent="page='guide'" style="color:var(--accent2);text-decoration:none;font-weight:500;">How to Setup</a> section for a step-by-step guide on getting started.
+        <div class="callout">
+          New to Hermes? Head over to the <a href="#" @click.prevent="page='guide'" class="ds-link">How to Setup</a> section for a step-by-step guide on getting started.
         </div>
 
         <!-- LLM Provider -->
         <div class="section-label">
           LLM Provider
-          <span class="req-note">* required</span>
+          <span class="req-note">— required</span>
         </div>
         <div class="card">
-          <p class="hint" style="margin:0 0 12px;line-height:1.55;">
+          <p class="hint" style="margin:0 0 14px;">
             The dropdown below has the most-used providers. Hermes adds new ones
-            often and this list won't always be perfectly in sync &mdash; but every
+            often and this list won't always be perfectly in sync — but every
             provider Hermes supports is configurable from the
-            <a href="/?force=1" style="color:var(--accent2);text-decoration:none;font-weight:500;">Hermes Dashboard</a>
-            &rarr; <strong>Keys</strong> tab. A typical flow: pick one here (e.g.
+            <a href="/?force=1" class="ds-link">Hermes Dashboard</a>
+            → <strong style="color:var(--ds-primary);font-weight:500;">Keys</strong> tab. A typical flow: pick one here (e.g.
             OpenRouter) to get the agent running, then open the dashboard to add
             or switch to any other provider you need.
           </p>
@@ -830,12 +1059,12 @@
           Messaging Channels
           <span class="req-note">— at least one required</span>
         </div>
-        <div class="card" style="padding: 0 16px;">
+        <div class="card flush">
 
           <!-- Telegram -->
           <div class="toggle-row" @click="channelsEnabled.telegram=!channelsEnabled.telegram; if(!channelsEnabled.telegram) clearChannel('telegram')">
             <input type="checkbox" :checked="channelsEnabled.telegram" @click.stop @change="channelsEnabled.telegram=$event.target.checked; if(!channelsEnabled.telegram) clearChannel('telegram')">
-            <span class="toggle-icon">✈️</span>
+            <span class="toggle-icon"><svg class="icon"><use href="#i-send"/></svg></span>
             <span class="toggle-label">Telegram</span>
           </div>
           <div class="toggle-body" x-show="channelsEnabled.telegram">
@@ -848,7 +1077,7 @@
           <!-- Discord -->
           <div class="toggle-row" @click="channelsEnabled.discord=!channelsEnabled.discord; if(!channelsEnabled.discord) clearChannel('discord')">
             <input type="checkbox" :checked="channelsEnabled.discord" @click.stop @change="channelsEnabled.discord=$event.target.checked; if(!channelsEnabled.discord) clearChannel('discord')">
-            <span class="toggle-icon">🎮</span>
+            <span class="toggle-icon"><svg class="icon"><use href="#i-gamepad-2"/></svg></span>
             <span class="toggle-label">Discord</span>
           </div>
           <div class="toggle-body" x-show="channelsEnabled.discord">
@@ -861,7 +1090,7 @@
           <!-- Slack -->
           <div class="toggle-row" @click="channelsEnabled.slack=!channelsEnabled.slack; if(!channelsEnabled.slack) clearChannel('slack')">
             <input type="checkbox" :checked="channelsEnabled.slack" @click.stop @change="channelsEnabled.slack=$event.target.checked; if(!channelsEnabled.slack) clearChannel('slack')">
-            <span class="toggle-icon">💼</span>
+            <span class="toggle-icon"><svg class="icon"><use href="#i-hash"/></svg></span>
             <span class="toggle-label">Slack</span>
           </div>
           <div class="toggle-body" x-show="channelsEnabled.slack">
@@ -874,7 +1103,7 @@
           <!-- Email -->
           <div class="toggle-row" @click="channelsEnabled.email=!channelsEnabled.email; if(!channelsEnabled.email) clearChannel('email')">
             <input type="checkbox" :checked="channelsEnabled.email" @click.stop @change="channelsEnabled.email=$event.target.checked; if(!channelsEnabled.email) clearChannel('email')">
-            <span class="toggle-icon">📧</span>
+            <span class="toggle-icon"><svg class="icon"><use href="#i-mail"/></svg></span>
             <span class="toggle-label">Email</span>
           </div>
           <div class="toggle-body" x-show="channelsEnabled.email">
@@ -889,7 +1118,7 @@
           <!-- Mattermost -->
           <div class="toggle-row" @click="channelsEnabled.mattermost=!channelsEnabled.mattermost; if(!channelsEnabled.mattermost) clearChannel('mattermost')">
             <input type="checkbox" :checked="channelsEnabled.mattermost" @click.stop @change="channelsEnabled.mattermost=$event.target.checked; if(!channelsEnabled.mattermost) clearChannel('mattermost')">
-            <span class="toggle-icon">🔷</span>
+            <span class="toggle-icon"><svg class="icon"><use href="#i-messages-square"/></svg></span>
             <span class="toggle-label">Mattermost</span>
           </div>
           <div class="toggle-body" x-show="channelsEnabled.mattermost">
@@ -902,7 +1131,7 @@
           <!-- Matrix -->
           <div class="toggle-row" @click="channelsEnabled.matrix=!channelsEnabled.matrix; if(!channelsEnabled.matrix) clearChannel('matrix')">
             <input type="checkbox" :checked="channelsEnabled.matrix" @click.stop @change="channelsEnabled.matrix=$event.target.checked; if(!channelsEnabled.matrix) clearChannel('matrix')">
-            <span class="toggle-icon">🔢</span>
+            <span class="toggle-icon"><svg class="icon"><use href="#i-grid"/></svg></span>
             <span class="toggle-label">Matrix</span>
           </div>
           <div class="toggle-body" x-show="channelsEnabled.matrix">
@@ -914,21 +1143,23 @@
           </div>
 
           <!-- WhatsApp -->
-          <div class="toggle-row" style="border-bottom:none;" @click="channelsEnabled.whatsapp=!channelsEnabled.whatsapp; vars.WHATSAPP_ENABLED=channelsEnabled.whatsapp?'true':'false'">
+          <div class="toggle-row no-body" @click="channelsEnabled.whatsapp=!channelsEnabled.whatsapp; vars.WHATSAPP_ENABLED=channelsEnabled.whatsapp?'true':'false'">
             <input type="checkbox" :checked="channelsEnabled.whatsapp" @click.stop @change="channelsEnabled.whatsapp=$event.target.checked; vars.WHATSAPP_ENABLED=$event.target.checked?'true':'false'">
-            <span class="toggle-icon">💬</span>
+            <span class="toggle-icon"><svg class="icon"><use href="#i-message-circle"/></svg></span>
             <span class="toggle-label">WhatsApp</span>
-            <span style="font-size:11px;color:var(--text-dim);margin-left:8px;">pairing via gateway logs on first run</span>
+            <span style="font-size:11px;color:var(--iv-60);margin-left:8px;">pairing via gateway logs on first run</span>
           </div>
 
         </div>
 
         <!-- Gateway options -->
-        <div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-          <input type="checkbox" :checked="vars.GATEWAY_ALLOW_ALL_USERS==='true'" @change="vars.GATEWAY_ALLOW_ALL_USERS=$event.target.checked?'true':'false'">
-          <div>
-            <p style="font-size:13px;font-weight:500;">Allow all users</p>
-            <p class="hint" style="margin-top:2px;">Skip per-platform allowlists — use with caution</p>
+        <div class="card" style="padding:0;margin-top:14px;">
+          <div class="gateway-toggle">
+            <input type="checkbox" :checked="vars.GATEWAY_ALLOW_ALL_USERS==='true'" @change="vars.GATEWAY_ALLOW_ALL_USERS=$event.target.checked?'true':'false'">
+            <div>
+              <p class="label">Allow all users</p>
+              <p class="hint" style="margin-top:3px;">Skip per-platform allowlists — use with caution</p>
+            </div>
           </div>
         </div>
 
@@ -937,17 +1168,16 @@
           Tool API Keys
           <span class="req-note">— optional</span>
         </div>
-        <div class="card" style="padding: 0 16px;">
+        <div class="card flush">
           <template x-for="(t, i) in tools" :key="t.key">
             <div>
-              <div class="toggle-row" :style="i===tools.length-1 && !toolsEnabled[t.key] ? 'border-bottom:none' : ''"
+              <div class="toggle-row"
                    @click="toolsEnabled[t.key]=!toolsEnabled[t.key]; if(!toolsEnabled[t.key]) clearTool(t)">
                 <input type="checkbox" :checked="toolsEnabled[t.key]" @click.stop
                        @change="toolsEnabled[t.key]=$event.target.checked; if(!toolsEnabled[t.key]) clearTool(t)">
                 <span class="toggle-label" x-text="t.label"></span>
               </div>
-              <div class="toggle-body" x-show="toolsEnabled[t.key]"
-                   :style="i===tools.length-1 ? 'border-bottom:none' : ''">
+              <div class="toggle-body" x-show="toolsEnabled[t.key]">
                 <div>
                   <label class="field-label">API Key</label>
                   <input :type="t.secret?'password':'text'" :value="vars[t.key]||''" @input="vars[t.key]=$event.target.value">
@@ -963,7 +1193,7 @@
 
       </div>
       <div class="save-bar">
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-dim);cursor:pointer;">
+        <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--iv-80);cursor:pointer;">
           <input type="checkbox" x-model="restartOnSave"> Restart gateway after save
         </label>
         <div style="display:flex;gap:10px;align-items:center;">
@@ -993,11 +1223,11 @@
             <div class="stat-label">Gateway State</div>
             <div class="stat-value"
                  :class="{green: gw.state==='running', red: gw.state==='error'||gw.state==='crashed', yellow: gw.state==='starting'||gw.state==='stopping'}"
-                 x-text="gw.state||'stopped'"></div>
+                 x-text="gw.state||'stopped'" style="font-size:18px;letter-spacing:0.04em;text-transform:uppercase;font-weight:300;"></div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Uptime</div>
-            <div class="stat-value" style="font-size:16px;" x-text="gw.uptime!=null ? fmtUptime(gw.uptime) : '—'"></div>
+            <div class="stat-value" style="font-size:18px;" x-text="gw.uptime!=null ? fmtUptime(gw.uptime) : '—'"></div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Pending Pairs</div>
@@ -1005,35 +1235,47 @@
           </div>
           <div class="stat-card">
             <div class="stat-label">Model</div>
-            <div class="stat-value" style="font-size:12px;word-break:break-all;" x-text="vars.LLM_MODEL||'—'"></div>
+            <div class="stat-value" style="font-size:13px;font-family:var(--font-mono);font-weight:400;word-break:break-all;" x-text="vars.LLM_MODEL||'—'"></div>
           </div>
         </div>
 
         <div class="action-row">
-          <button class="btn success" @click="startGw()"        :disabled="gw.state==='running'">▶ Start</button>
-          <button class="btn danger"  @click="stopGw()"         :disabled="gw.state==='stopped'">■ Stop</button>
-          <button class="btn"         @click="restartGateway()">↺ Restart</button>
+          <button class="btn success" @click="startGw()" :disabled="gw.state==='running'">
+            <svg class="icon xs"><use href="#i-play"/></svg> Start
+          </button>
+          <button class="btn danger" @click="stopGw()" :disabled="gw.state==='stopped'">
+            <svg class="icon xs"><use href="#i-square"/></svg> Stop
+          </button>
+          <button class="btn" @click="restartGateway()">
+            <svg class="icon xs"><use href="#i-rotate-cw"/></svg> Restart
+          </button>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
           <div>
-            <div class="section-label">Providers</div>
-            <div class="card" style="padding:0;overflow:hidden;">
+            <div class="section-label" style="margin-top:0;">Providers</div>
+            <div class="card flush">
               <template x-for="(info,name) in status.providers||{}" :key="name">
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border);">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--iv-10);">
                   <span style="font-size:13px;" x-text="name"></span>
-                  <span class="chip" :class="info.configured?'green':'dim'" x-text="info.configured?'✓ set':'—'"></span>
+                  <span class="chip" :class="info.configured?'green':'dim'">
+                    <span class="dot"></span>
+                    <span x-text="info.configured?'Configured':'Not set'"></span>
+                  </span>
                 </div>
               </template>
             </div>
           </div>
           <div>
-            <div class="section-label">Channels</div>
-            <div class="card" style="padding:0;overflow:hidden;">
+            <div class="section-label" style="margin-top:0;">Channels</div>
+            <div class="card flush">
               <template x-for="(info,name) in status.channels||{}" :key="name">
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border);">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--iv-10);">
                   <span style="font-size:13px;" x-text="name"></span>
-                  <span class="chip" :class="info.configured?'green':'dim'" x-text="info.configured?'✓ set':'—'"></span>
+                  <span class="chip" :class="info.configured?'green':'dim'">
+                    <span class="dot"></span>
+                    <span x-text="info.configured?'Configured':'Not set'"></span>
+                  </span>
                 </div>
               </template>
             </div>
@@ -1065,13 +1307,13 @@
       </div>
       <div class="panel-body">
 
-        <div class="section-label">Pending Pairing Requests</div>
+        <div class="section-label" style="margin-top:0;">Pending Pairing Requests</div>
         <div class="empty-state" x-show="pending.length===0">No pending requests. Unauthorized users who message your bot will appear here.</div>
         <template x-for="r in pending" :key="r.platform+r.code">
           <div class="pair-card pending">
             <div style="flex:1;">
-              <div style="font-size:13px;font-weight:500;" x-text="r.user_name||r.user_id"></div>
-              <div class="hint" style="margin-top:3px;">
+              <div style="font-size:14px;font-weight:500;color:var(--ds-primary);" x-text="r.user_name||r.user_id"></div>
+              <div class="hint" style="margin-top:4px;">
                 <span x-text="r.platform"></span>
                 <span x-show="r.user_name" x-text="' · #'+r.user_id"></span>
                 <span x-text="' · '+r.age_minutes+'m ago'"></span>
@@ -1084,9 +1326,9 @@
           </div>
         </template>
 
-        <div class="section-label" style="margin-top:20px;">Approved Users</div>
+        <div class="section-label">Approved Users</div>
         <div class="empty-state" x-show="approved.length===0">No approved users yet.</div>
-        <div class="card" style="padding:0;overflow:hidden;" x-show="approved.length>0">
+        <div class="card flush" x-show="approved.length>0">
           <table class="data-table">
             <thead>
               <tr>
@@ -1099,12 +1341,12 @@
             <tbody>
               <template x-for="u in approved" :key="u.platform+u.user_id">
                 <tr>
-                  <td style="color:var(--accent);" x-text="u.platform"></td>
+                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--iv-80);" x-text="u.platform"></td>
                   <td>
                     <span x-text="u.user_name||u.user_id"></span>
-                    <span style="color:var(--text-dim);font-size:12px;font-family:var(--font-mono);" x-show="u.user_name" x-text="' #'+u.user_id"></span>
+                    <span style="color:var(--iv-40);font-size:12px;font-family:var(--font-mono);" x-show="u.user_name" x-text="' #'+u.user_id"></span>
                   </td>
-                  <td style="color:var(--text-dim);font-size:12px;" x-text="fmtDate(u.approved_at)"></td>
+                  <td style="color:var(--iv-60);font-size:12px;font-family:var(--font-mono);" x-text="fmtDate(u.approved_at)"></td>
                   <td style="text-align:right;">
                     <button class="btn sm danger" @click="revoke(u.platform,u.user_id)">Revoke</button>
                   </td>
@@ -1120,7 +1362,7 @@
     <!-- ── Guide panel ─────────────────────────────── -->
     <div class="panel" :class="{active: page==='guide'}">
       <div class="panel-header">
-        <div class="panel-title">How to Setup</div>
+        <div class="panel-title">How to setup</div>
         <div class="panel-subtitle">Get your Hermes Agent running in minutes</div>
       </div>
       <div class="panel-body">
@@ -1128,15 +1370,15 @@
         <!-- Part 1: LLM API Key -->
         <div class="guide-section">
           <div class="guide-section-title">
-            <span class="guide-num">1</span>
-            Get a Free LLM API Key
+            <span class="guide-num">01</span>
+            <span class="guide-heading">Get a free LLM API key</span>
           </div>
           <ol class="step-list">
             <li>
               Go to <a href="https://openrouter.ai" target="_blank" rel="noopener">openrouter.ai</a> and create a free account.
             </li>
             <li>
-              Once logged in, go to <a href="https://openrouter.ai/workspaces/default/keys" target="_blank" rel="noopener">openrouter.ai/workspaces/default/keys</a> and click <strong>Create Key</strong>.
+              Once logged in, go to <a href="https://openrouter.ai/workspaces/default/keys" target="_blank" rel="noopener">openrouter.ai/workspaces/default/keys</a> and click <strong style="color:var(--ds-primary);font-weight:500;">Create Key</strong>.
               <span class="step-note">Copy the generated API key — it starts with <code>sk-or-...</code></span>
             </li>
             <li>
@@ -1145,11 +1387,11 @@
               <span class="step-note">Browse all available models at <a href="https://openrouter.ai/models" target="_blank" rel="noopener">openrouter.ai/models</a> — filter by "Free" to see no-cost options.</span>
             </li>
             <li>
-              Head over to the <strong>Setup</strong> page (left sidebar), select <strong>OpenRouter</strong> as provider, paste your API key, and enter the model name.
+              Head over to the <strong style="color:var(--ds-primary);font-weight:500;">Setup</strong> page (left sidebar), select <strong style="color:var(--ds-primary);font-weight:500;">OpenRouter</strong> as provider, paste your API key, and enter the model name.
               <span class="step-note">
                 Want a different provider (Anthropic, DeepSeek, Groq, Cerebras, Mistral, etc.)? Open the
-                <a href="/?force=1" style="color:var(--accent2);">Hermes Dashboard</a> from the sidebar — the
-                <strong>Keys</strong> tab lists every provider Hermes supports out of the box, plus
+                <a href="/?force=1">Hermes Dashboard</a> from the sidebar — the
+                <strong style="color:var(--ds-primary);font-weight:500;">Keys</strong> tab lists every provider Hermes supports out of the box, plus
                 skills, toolsets, and analytics you can configure from there.
               </span>
             </li>
@@ -1159,11 +1401,11 @@
         <!-- Part 2: Telegram -->
         <div class="guide-section">
           <div class="guide-section-title">
-            <span class="guide-num">2</span>
-            Connect a Messaging Platform
+            <span class="guide-num">02</span>
+            <span class="guide-heading">Connect a messaging platform</span>
           </div>
-          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">
-            Hermes Agent works through messaging platforms. You need to connect at least one. The easiest to set up is <strong style="color:var(--text);">Telegram</strong>.
+          <p class="guide-section-lead">
+            Hermes Agent works through messaging platforms. You need to connect at least one. The easiest to set up is <strong style="color:var(--ds-primary);font-weight:500;">Telegram</strong>.
           </p>
           <ol class="step-list">
             <li>
@@ -1173,64 +1415,27 @@
               Send <code>/newbot</code> and follow the prompts — give your bot a name and username.
             </li>
             <li>
-              BotFather will reply with a <strong>Bot Token</strong> — it looks like <code>1234567890:ABCdefGhIjKlMnOpQrStUvWxYz</code>.
+              BotFather will reply with a <strong style="color:var(--ds-primary);font-weight:500;">Bot Token</strong> — it looks like <code>1234567890:ABCdefGhIjKlMnOpQrStUvWxYz</code>.
               <span class="step-note">Copy this token.</span>
             </li>
             <li>
-              Go to the <strong>Setup</strong> page, enable <strong>Telegram</strong> under Messaging Channels, and paste the Bot Token.
+              Go to the <strong style="color:var(--ds-primary);font-weight:500;">Setup</strong> page, enable <strong style="color:var(--ds-primary);font-weight:500;">Telegram</strong> under Messaging Channels, and paste the Bot Token.
             </li>
             <li>
-              For <strong>Allowed User IDs</strong>, if you're just starting out, enter <code>*</code> to allow all users.
+              For <strong style="color:var(--ds-primary);font-weight:500;">Allowed User IDs</strong>, if you're just starting out, enter <code>*</code> to allow all users.
               <span class="step-note">You can restrict access later by specifying individual Telegram user IDs.</span>
             </li>
             <li>
-              Click <strong>Save & Start</strong> on the bottom right — your Hermes Agent is now live!
+              Click <strong style="color:var(--ds-primary);font-weight:500;">Save &amp; Start</strong> on the bottom right — your Hermes Agent is now live.
             </li>
           </ol>
         </div>
 
         <!-- Issue callout -->
         <div class="guide-callout">
-          Facing an issue or something not working as expected? <a href="https://github.com/praveen-ks-2001/hermes-agent-template/issues" target="_blank" rel="noopener">Create a GitHub issue</a> and we'll help you out.
+          Facing an issue or something not working as expected? <a href="https://github.com/kevinledev/hermes-agent-template/issues" target="_blank" rel="noopener" class="ds-link">Create a GitHub issue</a> and we'll help you out.
         </div>
 
-      </div>
-    </div>
-
-    <!-- ── Other Templates panel ───────────────────── -->
-    <div class="panel" :class="{active: page==='templates'}">
-      <div class="panel-header">
-        <div class="panel-title">Other Templates</div>
-        <div class="panel-subtitle">Deploy more AI agents on Railway</div>
-      </div>
-      <div class="panel-body">
-        <p style="font-size:13px;color:var(--text-dim);margin-bottom:18px;">
-          Explore other AI agent templates you can deploy on Railway with one click.
-        </p>
-
-        <div class="template-grid">
-
-          <div class="template-card">
-            <div class="template-card-name">OpenClaw</div>
-            <div class="template-card-desc">
-              Self-hosted OpenClaw agent — deploy and manage your own OpenClaw instance on Railway.
-            </div>
-            <a class="btn primary" href="https://railway.com/deploy/self-host-openclaw?referralCode=QXdhdr&utm_medium=integration&utm_source=template&utm_campaign=generic" target="_blank" rel="noopener">
-              Deploy on Railway
-            </a>
-          </div>
-
-          <div class="template-card">
-            <div class="template-card-name">Paperclip</div>
-            <div class="template-card-desc">
-              Paperclip AI Company — deploy your own Paperclip AI agent instance on Railway.
-            </div>
-            <a class="btn primary" href="https://railway.com/deploy/paperclip-ai-company?referralCode=QXdhdr&utm_medium=integration&utm_source=template&utm_campaign=generic" target="_blank" rel="noopener">
-              Deploy on Railway
-            </a>
-          </div>
-
-        </div>
       </div>
     </div>
 
