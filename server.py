@@ -352,50 +352,298 @@ def guard(request: Request) -> Response | None:
 LOGIN_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hermes Agent — Sign in</title>
+<title>Hermes Agent - Sign in</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+:root{
+  --ds-bg: #10100E;
+  --ds-surface: #181814;
+  --ds-elevated: #1E1E1C;
+  --ds-primary: #FFFFE3;
+  --ds-accent: #7A9E90;
+  --ds-ivory-88: rgba(255,255,227,0.88);
+  --ds-ivory-80: rgba(255,255,227,0.8);
+  --ds-ivory-60: rgba(255,255,227,0.6);
+  --ds-ivory-40: rgba(255,255,227,0.4);
+  --ds-ivory-30: rgba(255,255,227,0.3);
+  --ds-ivory-10: rgba(255,255,227,0.1);
+  --ds-ivory-05: rgba(255,255,227,0.05);
+  --sys-red: #B88078;
+  --font-body: 'Inter Tight', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --ease-luxe: cubic-bezier(0.25,0.46,0.45,0.94);
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d0f14;color:#c9d1d9;font-family:'IBM Plex Sans',sans-serif;
-  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:#14181f;border:1px solid #252d3d;border-radius:12px;padding:36px 32px;width:100%;max-width:380px;
-  box-shadow:0 20px 40px rgba(0,0,0,0.4)}
-.brand{text-align:center;margin-bottom:28px}
-.brand-logo{display:inline-flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:18px;color:#6272ff}
-.brand-logo span{color:#6b7688;font-weight:400}
-.brand-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6b7688;margin-top:8px;letter-spacing:1.5px;text-transform:uppercase}
-label{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6b7688;
-  letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;margin-top:16px}
-input{width:100%;background:#0d0f14;border:1px solid #252d3d;border-radius:6px;color:#c9d1d9;
-  font-family:'IBM Plex Mono',monospace;font-size:13px;padding:9px 11px;outline:none;transition:border-color .15s}
-input:focus{border-color:#6272ff}
-button{width:100%;margin-top:24px;background:#6272ff;border:1px solid #6272ff;border-radius:6px;color:#fff;
-  font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:500;padding:10px;cursor:pointer;
-  transition:background .15s,border-color .15s}
-button:hover{background:#7b8fff;border-color:#7b8fff}
-.err{background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.3);border-radius:6px;
-  color:#f85149;font-family:'IBM Plex Mono',monospace;font-size:12px;padding:8px 12px;margin-bottom:14px;text-align:center}
-.footnote{margin-top:18px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6b7688;text-align:center;line-height:1.6}
+html{min-height:100%}
+body{
+  min-height:100vh;
+  background:var(--ds-bg);
+  color:var(--ds-primary);
+  font-family:var(--font-body);
+  display:grid;
+  place-items:center;
+  padding:32px 20px;
+}
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  background:
+    linear-gradient(rgba(255,255,227,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,227,0.035) 1px, transparent 1px);
+  background-size:64px 64px;
+  mask-image:linear-gradient(to bottom, rgba(0,0,0,0.45), transparent 72%);
+}
+.shell{
+  width:min(100%, 1020px);
+  display:grid;
+  grid-template-columns:minmax(0, 1fr) 420px;
+  min-height:560px;
+  border:1px solid var(--ds-ivory-10);
+  border-radius:8px;
+  background:rgba(24,24,20,0.6);
+  backdrop-filter:blur(4px);
+  overflow:hidden;
+  position:relative;
+}
+.intro{
+  padding:56px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  border-right:1px solid var(--ds-ivory-10);
+}
+.mark{
+  display:inline-flex;
+  flex-direction:column;
+  line-height:.92;
+  color:var(--ds-primary);
+}
+.mark-main{
+  font-size:22px;
+  font-weight:500;
+  letter-spacing:-0.02em;
+}
+.mark-sub{
+  margin-top:5px;
+  font-size:11px;
+  font-weight:300;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.intro-copy{max-width:500px}
+.rule{
+  display:block;
+  width:32px;
+  height:1px;
+  background:var(--ds-accent);
+  margin-bottom:16px;
+}
+.eyebrow{
+  display:block;
+  font-size:13px;
+  font-weight:500;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--ds-ivory-88);
+  margin-bottom:18px;
+}
+h1{
+  font-size:clamp(44px, 7vw, 76px);
+  font-weight:500;
+  letter-spacing:-0.025em;
+  line-height:.95;
+  color:var(--ds-primary);
+  max-width:560px;
+}
+.intro-text{
+  margin-top:24px;
+  max-width:440px;
+  color:var(--ds-ivory-80);
+  font-size:17px;
+  line-height:1.55;
+}
+.status-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  color:var(--ds-ivory-60);
+  font-family:var(--font-mono);
+  font-size:11px;
+}
+.status-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  border:1px solid var(--ds-ivory-10);
+  border-radius:6px;
+  padding:8px 10px;
+  background:var(--ds-ivory-05);
+}
+.status-dot{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:var(--ds-accent);
+  box-shadow:0 0 16px rgba(122,158,144,0.45);
+}
+.auth{
+  background:var(--ds-bg);
+  padding:56px 44px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.auth-kicker{
+  font-family:var(--font-mono);
+  color:var(--ds-ivory-60);
+  font-size:11px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  margin-bottom:12px;
+}
+.auth-title{
+  color:var(--ds-primary);
+  font-size:28px;
+  font-weight:500;
+  letter-spacing:-0.015em;
+  line-height:1.1;
+}
+.auth-note{
+  margin-top:12px;
+  color:var(--ds-ivory-80);
+  font-size:15px;
+  line-height:1.5;
+}
+form{margin-top:32px}
+label{
+  display:block;
+  margin:18px 0 7px;
+  color:var(--ds-ivory-80);
+  font-size:12px;
+  font-weight:500;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+input{
+  width:100%;
+  border:1px solid var(--ds-ivory-10);
+  border-radius:8px;
+  background:rgba(24,24,20,0.6);
+  color:var(--ds-primary);
+  font-family:var(--font-body);
+  font-size:15px;
+  padding:13px 14px;
+  outline:none;
+  transition:border-color 200ms var(--ease-luxe), outline-color 200ms var(--ease-luxe), background 200ms var(--ease-luxe);
+}
+input::placeholder{color:var(--ds-ivory-40)}
+input:focus{border-color:var(--ds-primary)}
+input:focus-visible{
+  outline:2px solid var(--ds-accent);
+  outline-offset:2px;
+}
+button{
+  width:100%;
+  margin-top:28px;
+  border:0;
+  border-radius:8px;
+  background:var(--ds-primary);
+  color:var(--ds-bg);
+  font-family:var(--font-body);
+  font-size:14px;
+  font-weight:500;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  padding:13px 20px;
+  cursor:pointer;
+  transition:background 400ms var(--ease-luxe), transform 400ms var(--ease-luxe), box-shadow 400ms var(--ease-luxe);
+}
+button:hover{
+  background:rgba(255,255,227,0.9);
+  transform:translateY(-1px) scale(1.02);
+  box-shadow:0 10px 25px rgba(0,0,0,0.3);
+}
+button:active{transform:scale(.98)}
+button:focus-visible{
+  outline:2px solid var(--ds-accent);
+  outline-offset:3px;
+}
+.err{
+  margin-top:22px;
+  border:1px solid rgba(184,128,120,0.35);
+  border-radius:8px;
+  background:rgba(184,128,120,0.12);
+  color:#D8AAA4;
+  font-family:var(--font-mono);
+  font-size:12px;
+  line-height:1.4;
+  padding:10px 12px;
+}
+.footnote{
+  margin-top:22px;
+  color:var(--ds-ivory-60);
+  font-family:var(--font-mono);
+  font-size:11px;
+  line-height:1.7;
+}
+code{
+  color:var(--ds-ivory-88);
+  font-family:var(--font-mono);
+}
+@media (max-width: 820px){
+  body{padding:20px}
+  .shell{grid-template-columns:1fr;min-height:0}
+  .intro{padding:36px 28px;border-right:0;border-bottom:1px solid var(--ds-ivory-10);gap:56px}
+  .auth{padding:34px 28px}
+  h1{font-size:44px}
+}
+@media (max-width: 520px){
+  body{display:block;padding:0;background:var(--ds-bg)}
+  body::before{display:none}
+  .shell{border:0;border-radius:0;min-height:100vh}
+  .intro{padding:28px 20px}
+  .auth{padding:32px 20px}
+  h1{font-size:38px}
+}
 </style></head>
 <body>
-<div class="card">
-  <div class="brand">
-    <div class="brand-logo">hermes<span>/admin</span></div>
-    <div class="brand-sub">Sign in to continue</div>
-  </div>
-  __ERROR__
-  <form method="POST" action="/login">
-    <input type="hidden" name="returnTo" value="__RETURN_TO__">
-    <label for="username">Username</label>
-    <input id="username" name="username" type="text" autocomplete="username" autofocus required>
-    <label for="password">Password</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button type="submit">Sign in</button>
-  </form>
-  <p class="footnote">Credentials are the <code>ADMIN_USERNAME</code> and <code>ADMIN_PASSWORD</code><br>Railway service variables.</p>
-</div>
+<main class="shell" aria-label="Hermes admin sign in">
+  <section class="intro" aria-label="Hermes agent">
+    <div class="mark" aria-label="Hermes admin">
+      <span class="mark-main">hermes</span>
+      <span class="mark-sub">admin</span>
+    </div>
+    <div class="intro-copy">
+      <span class="rule" aria-hidden="true"></span>
+      <span class="eyebrow">Private agent operations</span>
+      <h1>Deploy and manage Hermes.</h1>
+      <p class="intro-text">A focused control surface for configuration, gateway state, pairing requests, and the native Hermes dashboard.</p>
+    </div>
+    <div class="status-row" aria-label="Session details">
+      <span class="status-pill"><span class="status-dot" aria-hidden="true"></span> Cookie session</span>
+      <span class="status-pill">Railway ready</span>
+    </div>
+  </section>
+  <section class="auth" aria-label="Sign in form">
+    <div class="auth-kicker">WELCOME BACK</div>
+    <h2 class="auth-title">Sign in to continue.</h2>
+    <p class="auth-note">Use the admin credentials configured for this deployment.</p>
+    __ERROR__
+    <form method="POST" action="/login">
+      <input type="hidden" name="returnTo" value="__RETURN_TO__">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" autofocus required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+    <p class="footnote">Credentials are the <code>ADMIN_USERNAME</code> and <code>ADMIN_PASSWORD</code><br>Railway service variables.</p>
+  </section>
+</main>
 </body></html>"""
 
 
