@@ -318,7 +318,6 @@
     border-left-color: var(--ds-primary);
     background: var(--iv-05);
   }
-  .nav-item.locked { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
   .nav-item.danger { color: var(--iv-60); }
   .nav-item.danger:hover { color: var(--sys-red); background: rgba(184,128,120,0.06); border-left-color: var(--sys-red); }
 
@@ -957,22 +956,22 @@
 
     <div class="nav-group-label">Monitor</div>
     <div class="nav-item"
-         :class="{active: page==='status', locked: !isSetupDone}"
-         @click="isSetupDone && (page='status')">
+         :class="{active: page==='status'}"
+         @click="page='status'">
       <svg class="icon"><use href="#i-activity"/></svg>
       <span>Status</span>
     </div>
     <div class="nav-item"
-         :class="{active: page==='logs', locked: !isSetupDone}"
-         @click="isSetupDone && (page='logs')">
+         :class="{active: page==='logs'}"
+         @click="page='logs'">
       <svg class="icon"><use href="#i-scroll-text"/></svg>
       <span>Logs</span>
     </div>
 
     <div class="nav-group-label">Manage</div>
     <div class="nav-item"
-         :class="{active: page==='users', locked: !isSetupDone}"
-         @click="isSetupDone && (page='users')">
+         :class="{active: page==='users'}"
+         @click="page='users'">
       <svg class="icon"><use href="#i-users"/></svg>
       <span>Users</span>
       <span class="nav-badge" :class="{visible: pendingCount>0}" x-text="pendingCount"></span>
@@ -1016,7 +1015,7 @@
         <!-- LLM Provider -->
         <div class="section-label">
           LLM Provider
-          <span class="req-note">— required</span>
+          <span class="req-note">— optional in setup</span>
         </div>
         <div class="card">
           <p class="hint" style="margin:0 0 14px;">
@@ -1024,9 +1023,8 @@
             often and this list won't always be perfectly in sync — but every
             provider Hermes supports is configurable from the
             <a href="/?force=1" class="ds-link">Hermes Dashboard</a>
-            → <strong style="color:var(--ds-primary);font-weight:500;">Keys</strong> tab. A typical flow: pick one here (e.g.
-            OpenRouter) to get the agent running, then open the dashboard to add
-            or switch to any other provider you need.
+            → <strong style="color:var(--ds-primary);font-weight:500;">Keys</strong> tab. You can add a provider here for a quick start,
+            or open the dashboard to configure providers there.
           </p>
           <div>
             <label class="field-label">Provider</label>
@@ -1046,11 +1044,11 @@
                    :placeholder="selectedProvider ? (providerMap[selectedProvider]?.placeholder||'Paste your API key') : ''">
           </div>
 
-          <div class="field-gap" x-show="selectedProvider">
-            <label class="field-label">LLM Model</label>
+          <div class="field-gap" x-show="selectedProvider && selectedProvider !== 'OpenRouter'">
+            <label class="field-label">Model</label>
             <input type="text" :value="vars.LLM_MODEL||''" @input="vars.LLM_MODEL=$event.target.value"
                    placeholder="e.g. openai/gpt-4o-mini  or  deepseek/deepseek-chat">
-            <p class="hint">OpenRouter format: <code>provider/model-name</code></p>
+            <p class="hint">Optional here if you prefer to choose a model from the Hermes Dashboard.</p>
           </div>
         </div>
 
@@ -1387,7 +1385,7 @@
               <span class="step-note">Browse all available models at <a href="https://openrouter.ai/models" target="_blank" rel="noopener">openrouter.ai/models</a> — filter by "Free" to see no-cost options.</span>
             </li>
             <li>
-              Head over to the <strong style="color:var(--ds-primary);font-weight:500;">Setup</strong> page (left sidebar), select <strong style="color:var(--ds-primary);font-weight:500;">OpenRouter</strong> as provider, paste your API key, and enter the model name.
+              Head over to the <strong style="color:var(--ds-primary);font-weight:500;">Setup</strong> page (left sidebar), select <strong style="color:var(--ds-primary);font-weight:500;">OpenRouter</strong> as provider, and paste your API key.
               <span class="step-note">
                 Want a different provider (Anthropic, DeepSeek, Groq, Cerebras, Mistral, etc.)? Open the
                 <a href="/?force=1">Hermes Dashboard</a> from the sidebar — the
@@ -1469,7 +1467,6 @@ function app() {
     saving: false,
     restartOnSave: true,
     // True only when the SERVER has a persisted complete config.
-    // Distinct from isSetupDone, which tracks the in-memory form.
     savedConfigComplete: false,
 
     tools,
@@ -1499,11 +1496,6 @@ function app() {
     toolsEnabled: Object.fromEntries(tools.map(t => [t.key, false])),
 
     get pendingCount() { return this.pending.length; },
-
-    get isSetupDone() {
-      const keys = Object.values(this.providerMap).map(p => p.key);
-      return !!(this.vars.LLM_MODEL && keys.some(k => this.vars[k]));
-    },
 
     onProviderChange() {
       // Clear keys from other providers when switching
