@@ -53,6 +53,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 HERMES_HOME = os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
 ENV_FILE = Path(HERMES_HOME) / ".env"
+GATEWAY_PID_FILE = Path(HERMES_HOME) / "gateway.pid"
 PAIRING_DIR = Path(HERMES_HOME) / "pairing"
 PAIRING_TTL = 3600
 
@@ -737,8 +738,96 @@ class Gateway:
         self.started_at: float | None = None
         self.restarts = 0
 
+    def _managed_proc_running(self) -> bool:
+        return self.proc is not None and self.proc.returncode is None
+
+    def _pid_is_running(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+
+    def _pid_file_running_pid(self, cleanup_stale: bool = True) -> int | None:
+        try:
+            raw = GATEWAY_PID_FILE.read_text().strip()
+            pid = int(raw)
+        except (FileNotFoundError, ValueError, OSError):
+            return None
+
+        if self._pid_is_running(pid):
+            return pid
+
+        if cleanup_stale:
+            try:
+                GATEWAY_PID_FILE.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                self.logs.append(f"[warn] Failed to remove stale gateway PID file: {exc}")
+        return None
+
+    def _running_pid(self) -> int | None:
+        if self._managed_proc_running():
+            return self.proc.pid
+        return self._pid_file_running_pid()
+
+    def _unlink_pid_file_if_matches(self, pid: int) -> None:
+        try:
+            raw = GATEWAY_PID_FILE.read_text().strip()
+            if int(raw) == pid:
+                GATEWAY_PID_FILE.unlink()
+        except (FileNotFoundError, ValueError, OSError):
+            pass
+
+    async def _terminate_pid(self, pid: int, timeout: float = 10.0) -> None:
+        if pid <= 0 or pid == os.getpid():
+            return
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            self._unlink_pid_file_if_matches(pid)
+            return
+        except OSError as exc:
+            self.logs.append(f"[warn] Failed to stop gateway PID {pid}: {exc}")
+            return
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not self._pid_is_running(pid):
+                self._unlink_pid_file_if_matches(pid)
+                return
+            await asyncio.sleep(0.2)
+
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            self.logs.append(f"[warn] Failed to kill gateway PID {pid}: {exc}")
+            return
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            if not self._pid_is_running(pid):
+                self._unlink_pid_file_if_matches(pid)
+                return
+            await asyncio.sleep(0.2)
+
     async def start(self):
-        if self.proc and self.proc.returncode is None:
+        if self._managed_proc_running():
+            return
+        if existing_pid := self._pid_file_running_pid():
+            self.proc = None
+            self.state = "running"
+            self.started_at = self.started_at or time.time()
+            self.logs.append(f"[gateway] Using existing gateway process PID {existing_pid}")
             return
         self.state = "starting"
         try:
@@ -760,22 +849,31 @@ class Gateway:
             )
             self.state = "running"
             self.started_at = time.time()
-            asyncio.create_task(self._drain())
+            asyncio.create_task(self._drain(self.proc))
         except Exception as e:
             self.state = "error"
             self.logs.append(f"[error] Failed to start: {e}")
 
     async def stop(self):
-        if not self.proc or self.proc.returncode is not None:
+        if not self._managed_proc_running():
+            if external_pid := self._pid_file_running_pid():
+                self.state = "stopping"
+                await self._terminate_pid(external_pid)
+                self.state = "stopped"
+                self.started_at = None
+                return
             self.state = "stopped"
+            self.started_at = None
             return
         self.state = "stopping"
-        self.proc.terminate()
+        proc = self.proc
+        proc.terminate()
         try:
-            await asyncio.wait_for(self.proc.wait(), timeout=10)
+            await asyncio.wait_for(proc.wait(), timeout=10)
         except asyncio.TimeoutError:
-            self.proc.kill()
-            await self.proc.wait()
+            proc.kill()
+            await proc.wait()
+        self._unlink_pid_file_if_matches(proc.pid)
         self.state = "stopped"
         self.started_at = None
 
@@ -784,20 +882,26 @@ class Gateway:
         self.restarts += 1
         await self.start()
 
-    async def _drain(self):
-        assert self.proc and self.proc.stdout
-        async for raw in self.proc.stdout:
+    async def _drain(self, proc: asyncio.subprocess.Process):
+        assert proc.stdout
+        async for raw in proc.stdout:
             line = ANSI_ESCAPE.sub("", raw.decode(errors="replace").rstrip())
             self.logs.append(line)
-        if self.state == "running":
+        if self.proc is proc and self.state == "running":
             self.state = "error"
-            self.logs.append(f"[error] Gateway exited (code {self.proc.returncode})")
+            self.logs.append(f"[error] Gateway exited (code {proc.returncode})")
 
     def status(self) -> dict:
-        uptime = int(time.time() - self.started_at) if self.started_at and self.state == "running" else None
+        pid = self._running_pid()
+        state = self.state
+        if pid and not self._managed_proc_running():
+            state = "running"
+        elif not pid and state == "running":
+            state = "stopped"
+        uptime = int(time.time() - self.started_at) if self.started_at and state == "running" else None
         return {
-            "state":    self.state,
-            "pid":      self.proc.pid if self.proc and self.proc.returncode is None else None,
+            "state":    state,
+            "pid":      pid,
             "uptime":   uptime,
             "restarts": self.restarts,
         }
@@ -901,7 +1005,7 @@ async def page_index(request: Request):
 
 
 async def route_health(request: Request):
-    return JSONResponse({"status": "ok", "gateway": gw.state})
+    return JSONResponse({"status": "ok", "gateway": gw.status()["state"]})
 
 
 async def api_config_get(request: Request):
@@ -972,6 +1076,53 @@ async def api_gw_restart(request: Request):
     if err := guard(request): return err
     asyncio.create_task(gw.restart())
     return JSONResponse({"ok": True})
+
+
+async def api_native_gw_start(request: Request):
+    """Handle native dashboard gateway starts through this wrapper's manager.
+
+    The proxied Hermes dashboard has its own `/api/gateway/*` controls. Letting
+    those pass through creates a second gateway lifecycle owner, which can leave
+    the setup UI trying to start a gateway that the native UI already spawned.
+    """
+    if err := guard(request): return err
+    asyncio.create_task(gw.start())
+    return JSONResponse({"ok": True, "name": "gateway-start"})
+
+
+async def api_native_gw_stop(request: Request):
+    if err := guard(request): return err
+    asyncio.create_task(gw.stop())
+    return JSONResponse({"ok": True, "name": "gateway-stop"})
+
+
+async def api_native_gw_restart(request: Request):
+    if err := guard(request): return err
+    asyncio.create_task(gw.restart())
+    return JSONResponse({"ok": True, "name": "gateway-restart"})
+
+
+async def api_native_gateway_action_status(request: Request):
+    if err := guard(request): return err
+    try:
+        line_count = min(max(int(request.query_params.get("lines", "200")), 1), 2000)
+    except ValueError:
+        line_count = 200
+    status = gw.status()
+    running = status["state"] in ("starting", "stopping")
+    if status["state"] in ("running", "stopped"):
+        exit_code = 0
+    elif running:
+        exit_code = None
+    else:
+        exit_code = 1
+    return JSONResponse({
+        "name": "gateway-restart",
+        "running": running,
+        "exit_code": exit_code,
+        "pid": status["pid"],
+        "lines": list(gw.logs)[-line_count:],
+    })
 
 
 async def api_config_reset(request: Request):
@@ -1594,6 +1745,13 @@ routes = [
     WebSocketRoute("/api/pty",                  ws_proxy),
     WebSocketRoute("/api/ws",                   ws_proxy),
     WebSocketRoute("/api/events",               ws_proxy),
+
+    # Native Hermes dashboard gateway controls. Keep gateway mutations owned by
+    # this wrapper so /setup and / stay synchronized on one process lifecycle.
+    Route("/api/gateway/start",                 api_native_gw_start, methods=["POST"]),
+    Route("/api/gateway/stop",                  api_native_gw_stop,  methods=["POST"]),
+    Route("/api/gateway/restart",               api_native_gw_restart, methods=["POST"]),
+    Route("/api/actions/gateway-restart/status", api_native_gateway_action_status),
 
     # Root: redirect to /setup if unconfigured, otherwise proxy the dashboard.
     Route("/",                                  route_root,          methods=ANY_METHOD),
