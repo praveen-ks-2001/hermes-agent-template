@@ -38,6 +38,7 @@ import websockets.exceptions
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import (
+    FileResponse,
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
@@ -54,6 +55,37 @@ HERMES_HOME = os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
 ENV_FILE = Path(HERMES_HOME) / ".env"
 PAIRING_DIR = Path(HERMES_HOME) / "pairing"
 PAIRING_TTL = 3600
+
+FILE_BROWSER_DEFAULT_PATH = Path(os.environ.get("FILE_BROWSER_DEFAULT_PATH", "/data"))
+FILE_PREVIEW_MAX_BYTES = 256 * 1024
+FILE_BROWSER_BLOCKED_PREFIXES = ("/proc", "/dev", "/sys")
+FILE_BROWSER_DOCS = [
+    {
+        "path": "/data",
+        "label": "Railway volume",
+        "description": "Persistent volume mounted into this service. Files here survive redeploys and restarts.",
+    },
+    {
+        "path": "/data/.hermes",
+        "label": "Hermes runtime home",
+        "description": "Persistent Hermes config, sessions, logs, memories, skills, cron, hooks, and caches for this Railway template.",
+    },
+    {
+        "path": "/tmp",
+        "label": "Ephemeral scratch",
+        "description": "Temporary runtime space. Files here can disappear when the container restarts or redeploys.",
+    },
+    {
+        "path": "/app",
+        "label": "Admin wrapper app",
+        "description": "Dashboard server and templates copied into the container image at build time.",
+    },
+    {
+        "path": "/opt/hermes-agent",
+        "label": "Hermes install",
+        "description": "Hermes source/runtime installed into the image during the Docker build.",
+    },
+]
 
 # Native Hermes dashboard — runs on loopback, fronted by our reverse proxy.
 HERMES_DASHBOARD_HOST = "127.0.0.1"
@@ -952,6 +984,150 @@ async def api_config_reset(request: Request):
     return JSONResponse({"ok": True})
 
 
+# ── Read-only file browser ───────────────────────────────────────────────────
+def _file_browser_path(request: Request) -> Path:
+    raw = request.query_params.get("path") or str(FILE_BROWSER_DEFAULT_PATH)
+    path = Path(raw)
+    if not path.is_absolute():
+        raise ValueError("path must be absolute")
+    return path
+
+
+def _is_blocked_file_browser_path(path: Path) -> bool:
+    raw = str(path)
+    return any(raw == prefix or raw.startswith(f"{prefix}/") for prefix in FILE_BROWSER_BLOCKED_PREFIXES)
+
+
+def _entry_type(path: Path) -> str:
+    if path.is_symlink():
+        return "symlink"
+    if path.is_dir():
+        return "directory"
+    if path.is_file():
+        return "file"
+    return "other"
+
+
+def _file_entry(path: Path) -> dict:
+    entry_type = _entry_type(path)
+    try:
+        st = path.lstat()
+        size = st.st_size
+        modified = st.st_mtime
+    except OSError:
+        size = None
+        modified = None
+
+    return {
+        "name": path.name or str(path),
+        "path": str(path),
+        "type": entry_type,
+        "size": size,
+        "modified": modified,
+        "previewable": entry_type == "file" and not _is_blocked_file_browser_path(path),
+        "downloadable": entry_type == "file" and not _is_blocked_file_browser_path(path),
+    }
+
+
+def _sorted_file_entries(path: Path) -> list[dict]:
+    entries = []
+    for child in path.iterdir():
+        try:
+            entries.append(_file_entry(child))
+        except OSError:
+            continue
+    rank = {"directory": 0, "symlink": 1, "file": 2, "other": 3}
+    return sorted(entries, key=lambda e: (rank.get(e["type"], 9), e["name"].lower()))
+
+
+def _file_browser_payload(**extra) -> dict:
+    return {
+        "docs": FILE_BROWSER_DOCS,
+        "default_path": str(FILE_BROWSER_DEFAULT_PATH),
+        "note": (
+            "This Railway template sets HOME=/data and HERMES_HOME=/data/.hermes. "
+            "Official Hermes Docker examples often use /opt/data instead."
+        ),
+        **extra,
+    }
+
+
+async def api_files_list(request: Request):
+    if err := guard(request): return err
+    try:
+        path = _file_browser_path(request)
+    except ValueError as e:
+        return JSONResponse(_file_browser_payload(error=str(e)), status_code=400)
+    if not path.exists():
+        return JSONResponse(_file_browser_payload(error="Path not found"), status_code=404)
+    if not path.is_dir():
+        return JSONResponse(_file_browser_payload(error="Path is not a directory"), status_code=400)
+
+    try:
+        entries = _sorted_file_entries(path)
+    except PermissionError:
+        return JSONResponse(_file_browser_payload(error="Permission denied"), status_code=403)
+    except OSError as e:
+        return JSONResponse(_file_browser_payload(error=str(e)), status_code=500)
+
+    return JSONResponse(_file_browser_payload(
+        path=str(path),
+        parent=str(path.parent) if path.parent != path else None,
+        entries=entries,
+    ))
+
+
+async def api_files_preview(request: Request):
+    if err := guard(request): return err
+    try:
+        path = _file_browser_path(request)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    if _is_blocked_file_browser_path(path):
+        return JSONResponse({"error": "Preview is disabled for this virtual filesystem path"}, status_code=400)
+    if not path.exists():
+        return JSONResponse({"error": "Path not found"}, status_code=404)
+    if not path.is_file():
+        return JSONResponse({"error": "Path is not a file"}, status_code=400)
+
+    try:
+        with path.open("rb") as f:
+            data = f.read(FILE_PREVIEW_MAX_BYTES + 1)
+    except PermissionError:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+    except OSError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    if b"\x00" in data:
+        return JSONResponse({"error": "Binary files are download-only"}, status_code=415)
+
+    truncated = len(data) > FILE_PREVIEW_MAX_BYTES
+    if truncated:
+        data = data[:FILE_PREVIEW_MAX_BYTES]
+    return JSONResponse({
+        "path": str(path),
+        "name": path.name,
+        "content": data.decode("utf-8", errors="replace"),
+        "truncated": truncated,
+        "max_bytes": FILE_PREVIEW_MAX_BYTES,
+    })
+
+
+async def api_files_download(request: Request):
+    if err := guard(request): return err
+    try:
+        path = _file_browser_path(request)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    if _is_blocked_file_browser_path(path):
+        return JSONResponse({"error": "Download is disabled for this virtual filesystem path"}, status_code=400)
+    if not path.exists():
+        return JSONResponse({"error": "Path not found"}, status_code=404)
+    if not path.is_file():
+        return JSONResponse({"error": "Path is not a file"}, status_code=400)
+    return FileResponse(path, filename=path.name)
+
+
 # ── Pairing ───────────────────────────────────────────────────────────────────
 def _pjson(path: Path) -> dict:
     try:
@@ -1402,6 +1578,9 @@ routes = [
     Route("/setup/api/pairing/deny",            api_pairing_deny,    methods=["POST"]),
     Route("/setup/api/pairing/approved",        api_pairing_approved),
     Route("/setup/api/pairing/revoke",          api_pairing_revoke,  methods=["POST"]),
+    Route("/setup/api/files/list",              api_files_list),
+    Route("/setup/api/files/preview",           api_files_preview),
+    Route("/setup/api/files/download",          api_files_download),
 
     # /setup/* typos return a real 404 — not a silent proxy fallthrough.
     Route("/setup/{path:path}",                 route_setup_404,     methods=ANY_METHOD),

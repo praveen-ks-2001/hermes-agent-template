@@ -868,6 +868,139 @@
   }
   .guide-callout a { color: var(--ds-primary); }
 
+  /* ── File browser ────────────────────────────────── */
+  .file-browser {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+    gap: 20px;
+    min-height: 0;
+  }
+  .file-main, .file-aside { min-width: 0; }
+  .path-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .path-pill {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--iv-10);
+    border-radius: 8px;
+    background: var(--surface-60);
+    color: var(--ds-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 8px 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-table-wrap {
+    min-height: 380px;
+    max-height: calc(100vh - 270px);
+    overflow: auto;
+  }
+  .file-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--ds-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .file-name:hover { color: var(--ds-accent); }
+  .file-entry-icon {
+    width: 26px;
+    color: var(--iv-40);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .file-preview {
+    margin-top: 16px;
+    border: 1px solid var(--iv-10);
+    border-radius: 8px;
+    background: #0b0b0a;
+    overflow: hidden;
+  }
+  .file-preview-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--iv-10);
+    background: var(--ds-surface);
+  }
+  .file-preview-title {
+    flex: 1;
+    min-width: 0;
+    color: var(--iv-80);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-preview pre {
+    max-height: 42vh;
+    overflow: auto;
+    padding: 16px;
+    color: var(--iv-90);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .file-doc-list { padding: 0 18px; }
+  .file-doc-link {
+    display: block;
+    width: 100%;
+    padding: 14px 0;
+    border: 0;
+    border-bottom: 1px solid var(--iv-10);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+  .file-doc-link:last-child { border-bottom: 0; }
+  .file-doc-path {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ds-accent);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .file-doc-label {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ds-primary);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .file-doc-desc {
+    display: block;
+    color: var(--iv-60);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .file-note {
+    color: var(--iv-60);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  @media (max-width: 1180px) {
+    .file-browser { grid-template-columns: 1fr; }
+    .file-table-wrap { max-height: none; }
+  }
+
   /* ── Allow-all gateway toggle row (standalone card) ── */
   .gateway-toggle {
     display: flex;
@@ -895,6 +1028,7 @@
     <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 3.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 13H2"/></symbol>
     <symbol id="i-scroll-text" viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></symbol>
     <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
     <symbol id="i-book-open" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
     <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
     <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></symbol>
@@ -975,6 +1109,12 @@
       <svg class="icon"><use href="#i-users"/></svg>
       <span>Users</span>
       <span class="nav-badge" :class="{visible: pendingCount>0}" x-text="pendingCount"></span>
+    </div>
+    <div class="nav-item"
+         :class="{active: page==='files'}"
+         @click="openFiles()">
+      <svg class="icon"><use href="#i-folder"/></svg>
+      <span>Files</span>
     </div>
 
     <div class="nav-group-label">Resources</div>
@@ -1357,6 +1497,90 @@
       </div>
     </div>
 
+    <!-- ── Files panel ─────────────────────────────── -->
+    <div class="panel" :class="{active: page==='files'}">
+      <div class="panel-header">
+        <div class="panel-title">Files</div>
+        <div class="panel-subtitle">Read-only container filesystem browser</div>
+      </div>
+      <div class="panel-body">
+        <div class="file-browser">
+          <div class="file-main">
+            <div class="path-bar">
+              <button class="btn sm" @click="loadFiles(fileBrowser.parent)" :disabled="!fileBrowser.parent">Up</button>
+              <div class="path-pill" x-text="fileBrowser.path || '/data'"></div>
+              <button class="btn sm" @click="loadFiles(fileBrowser.path)">Refresh</button>
+            </div>
+
+            <div class="card flush file-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Modified</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="entry in fileBrowser.entries" :key="entry.path">
+                    <tr>
+                      <td>
+                        <button class="file-name" @click="openFileEntry(entry)">
+                          <span class="file-entry-icon" x-text="fileIcon(entry)"></span>
+                          <span x-text="entry.name"></span>
+                        </button>
+                      </td>
+                      <td style="font-family:var(--font-mono);font-size:12px;color:var(--iv-60);" x-text="entry.type"></td>
+                      <td style="font-family:var(--font-mono);font-size:12px;color:var(--iv-60);" x-text="formatBytes(entry.size)"></td>
+                      <td style="font-family:var(--font-mono);font-size:12px;color:var(--iv-60);" x-text="formatFileDate(entry.modified)"></td>
+                      <td style="text-align:right;">
+                        <a class="btn sm" x-show="entry.downloadable" :href="downloadUrl(entry.path)">Download</a>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+              <div class="empty-state" x-show="!fileBrowser.loading && fileBrowser.entries.length===0 && !fileBrowser.error">No files found.</div>
+              <div class="empty-state" x-show="fileBrowser.loading">Loading files...</div>
+              <div class="empty-state" x-show="fileBrowser.error" x-text="fileBrowser.error"></div>
+            </div>
+
+            <div class="file-preview" x-show="fileBrowser.preview">
+              <div class="file-preview-header">
+                <div class="file-preview-title" x-text="fileBrowser.preview?.path"></div>
+                <span class="chip dim" x-show="fileBrowser.preview?.truncated">truncated</span>
+                <a class="btn sm" :href="downloadUrl(fileBrowser.preview?.path || '')">Download</a>
+                <button class="btn sm" @click="fileBrowser.preview=null">Close</button>
+              </div>
+              <pre x-text="fileBrowser.preview?.content"></pre>
+            </div>
+          </div>
+
+          <aside class="file-aside">
+            <div class="section-label" style="margin-top:0;">Filesystem notes</div>
+            <div class="card">
+              <p class="file-note" style="margin-bottom:4px;">
+                Files opens at <code>/data</code>. This Railway template sets <code>HOME=/data</code>
+                and <code>HERMES_HOME=/data/.hermes</code>. Official Hermes Docker examples often use
+                <code>/opt/data</code> instead.
+              </p>
+              <div class="file-doc-list">
+                <template x-for="doc in fileBrowser.docs" :key="doc.path">
+                  <button class="file-doc-link" @click="loadFiles(doc.path)">
+                    <span class="file-doc-path" x-text="doc.path"></span>
+                    <span class="file-doc-label" x-text="doc.label"></span>
+                    <span class="file-doc-desc" x-text="doc.description"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Guide panel ─────────────────────────────── -->
     <div class="panel" :class="{active: page==='guide'}">
       <div class="panel-header">
@@ -1464,6 +1688,16 @@ function app() {
     logs: [],
     pending: [],
     approved: [],
+    fileBrowser: {
+      path: '/data',
+      parent: null,
+      entries: [],
+      docs: [],
+      note: '',
+      preview: null,
+      loading: false,
+      error: '',
+    },
     saving: false,
     restartOnSave: true,
     // True only when the SERVER has a persisted complete config.
@@ -1634,6 +1868,92 @@ function app() {
       if (!confirm('Revoke access for this user?')) return;
       await fetch('/setup/api/pairing/revoke', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({platform,user_id}) });
       this.notify('Revoked', true); await this.loadPairing();
+    },
+
+    async openFiles(path) {
+      this.page = 'files';
+      await this.loadFiles(path || this.fileBrowser.path || '/data');
+    },
+
+    async loadFiles(path) {
+      if (!path) return;
+      this.fileBrowser.loading = true;
+      this.fileBrowser.error = '';
+      try {
+        const r = await fetch('/setup/api/files/list?path=' + encodeURIComponent(path));
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.fileBrowser.error = d.error || 'Failed to load files';
+          this.fileBrowser.docs = d.docs || this.fileBrowser.docs || [];
+          this.fileBrowser.note = d.note || this.fileBrowser.note || '';
+          this.fileBrowser.entries = [];
+          this.fileBrowser.preview = null;
+          return;
+        }
+        this.fileBrowser.path = d.path || path;
+        this.fileBrowser.parent = d.parent || null;
+        this.fileBrowser.entries = d.entries || [];
+        this.fileBrowser.docs = d.docs || [];
+        this.fileBrowser.note = d.note || '';
+        this.fileBrowser.preview = null;
+      } catch(e) {
+        this.fileBrowser.error = 'Failed to load files: ' + e.message;
+      } finally {
+        this.fileBrowser.loading = false;
+      }
+    },
+
+    async openFileEntry(entry) {
+      if (entry.type === 'directory' || entry.type === 'symlink') {
+        await this.loadFiles(entry.path);
+        return;
+      }
+      if (entry.previewable) {
+        await this.previewFile(entry.path);
+      }
+    },
+
+    async previewFile(path) {
+      try {
+        const r = await fetch('/setup/api/files/preview?path=' + encodeURIComponent(path));
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.notify(d.error || 'Preview failed', false);
+          return;
+        }
+        this.fileBrowser.preview = d;
+      } catch(e) {
+        this.notify('Preview failed: ' + e.message, false);
+      }
+    },
+
+    downloadUrl(path) {
+      return '/setup/api/files/download?path=' + encodeURIComponent(path);
+    },
+
+    fileIcon(entry) {
+      if (entry.type === 'directory') return 'dir';
+      if (entry.type === 'symlink') return 'lnk';
+      if (entry.type === 'file') return 'txt';
+      return '---';
+    },
+
+    formatBytes(size) {
+      if (size == null) return '—';
+      if (size < 1024) return `${size} B`;
+      const units = ['KB', 'MB', 'GB', 'TB'];
+      let value = size / 1024;
+      let unit = units[0];
+      for (let i = 1; i < units.length && value >= 1024; i++) {
+        value = value / 1024;
+        unit = units[i];
+      }
+      return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
+    },
+
+    formatFileDate(ts) {
+      if (!ts) return '—';
+      return new Date(ts * 1000).toLocaleString(undefined, {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     },
 
     fmtDate(ts) {
