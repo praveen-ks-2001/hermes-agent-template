@@ -7,3 +7,7 @@ httpx>=0.27.0
 # hermes's /api/pty, /api/ws, /api/events endpoints. httpx does not speak
 # WebSockets, so we need a dedicated client library.
 websockets>=12.0
+# boto3 for S3-compatible storage sync (Backblaze B2, Cloudflare R2, etc.)
+# Used to persist /data/.hermes/ across container restarts when no
+# persistent volume is available (free-tier Render/Railway).
+boto3>=1.34.0

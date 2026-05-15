@@ -812,9 +812,17 @@
           <div class="field-gap" x-show="selectedProvider">
             <label class="field-label">API Key</label>
             <input type="password"
-                   :value="selectedProvider ? (vars[providerMap[selectedProvider]?.key]||'') : ''"
+                   :value="selectedProvider ? (vars[providerMap[selectedProvider]?.key||'') : ''"
                    @input="if(selectedProvider) vars[providerMap[selectedProvider].key]=$event.target.value"
                    :placeholder="selectedProvider ? (providerMap[selectedProvider]?.placeholder||'Paste your API key') : ''">
+          </div>
+
+          <div class="field-gap" x-show="selectedProvider === 'OpenAI (or custom)'">
+            <label class="field-label">API Base URL</label>
+            <input type="text" :value="vars.OPENAI_API_BASE||''"
+                   @input="vars.OPENAI_API_BASE=$event.target.value"
+                   placeholder="https://your-api-endpoint.com/v1">
+            <p class="hint">Your custom OpenAI-compatible API endpoint URL</p>
           </div>
 
           <div class="field-gap" x-show="selectedProvider">
@@ -1282,6 +1290,7 @@ function app() {
       'Step Plan':          { key: 'STEPFUN_API_KEY',       placeholder: ''          },
       'Vercel AI Gateway':  { key: 'AI_GATEWAY_API_KEY',    placeholder: ''          },
       'Google AI Studio':   { key: 'GEMINI_API_KEY',        placeholder: 'AIza...'   },
+      'OpenAI (or custom)': { key: 'OPENAI_API_KEY',        placeholder: 'sk-...'    },
     },
 
     selectedProvider: '',
