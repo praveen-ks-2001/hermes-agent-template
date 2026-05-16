@@ -55,6 +55,11 @@ ENV_FILE = Path(HERMES_HOME) / ".env"
 PAIRING_DIR = Path(HERMES_HOME) / "pairing"
 PAIRING_TTL = 3600
 
+# S3-compatible storage sync for data persistence across restarts.
+# Active only when S3_BUCKET and S3_ACCESS_KEY_ID are set.
+from s3_sync import S3Sync
+s3_sync = S3Sync(HERMES_HOME)
+
 # Native Hermes dashboard — runs on loopback, fronted by our reverse proxy.
 HERMES_DASHBOARD_HOST = "127.0.0.1"
 HERMES_DASHBOARD_PORT = int(os.environ.get("HERMES_DASHBOARD_PORT", "9119"))
@@ -96,6 +101,8 @@ ENV_VARS = [
     ("STEPFUN_API_KEY",          "Step Plan",                "provider",  True),
     ("AI_GATEWAY_API_KEY",       "Vercel AI Gateway",        "provider",  True),
     ("GEMINI_API_KEY",           "Google AI Studio",         "provider",  True),
+    ("OPENAI_API_KEY",           "OpenAI (or custom)",       "provider",  True),
+    ("OPENAI_API_BASE",          "Custom API Base URL",      "provider",  False),
     ("PARALLEL_API_KEY",         "Parallel (search)",        "tool",      True),
     ("FIRECRAWL_API_KEY",        "Firecrawl (scrape)",       "tool",      True),
     ("TAVILY_API_KEY",           "Tavily (search)",          "tool",      True),
@@ -938,13 +945,25 @@ async def auto_start():
 
 @asynccontextmanager
 async def lifespan(app):
+    # Pull persisted data from S3 before anything else, so config and
+    # pairing data are available before auto_start() checks them.
+    await s3_sync.pull()
+
     # Dashboard runs always — it's the user-facing UI after setup is done,
     # and it's independent of gateway state.
     asyncio.create_task(dash.start())
+
+    # Periodic sync pushes local changes back to S3 automatically.
+    await s3_sync.start_periodic()
+
     await auto_start()
     try:
         yield
     finally:
+        # Push latest data to S3 before shutdown.
+        await s3_sync.push()
+        await s3_sync.stop_periodic()
+
         await asyncio.gather(
             gw.stop(),
             dash.stop(),
