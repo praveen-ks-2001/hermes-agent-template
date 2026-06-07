@@ -791,13 +791,12 @@
         </div>
         <div class="card">
           <p class="hint" style="margin:0 0 12px;line-height:1.55;">
-            The dropdown below has the most-used providers. Hermes adds new ones
-            often and this list won't always be perfectly in sync &mdash; but every
-            provider Hermes supports is configurable from the
+            Select a provider, paste its key and enter a model, then click <strong>Save &amp; Start</strong>.
+            You can add multiple providers — each saves alongside the others.
+            Configured providers appear in the list below with a Remove button.
+            Every provider Hermes supports is also manageable from the
             <a href="/?force=1" style="color:var(--accent2);text-decoration:none;font-weight:500;">Hermes Dashboard</a>
-            &rarr; <strong>Keys</strong> tab. A typical flow: pick one here (e.g.
-            OpenRouter) to get the agent running, then open the dashboard to add
-            or switch to any other provider you need.
+            &rarr; <strong>Keys</strong> tab.
           </p>
           <div>
             <label class="field-label">Provider</label>
@@ -809,21 +808,171 @@
             </select>
           </div>
 
-          <div class="field-gap" x-show="selectedProvider">
-            <label class="field-label">API Key</label>
+          <!-- Custom Endpoint extra fields -->
+          <template x-if="selectedProvider === 'Custom Endpoint'">
+            <div>
+              <div class="field-gap">
+                <label class="field-label">Provider Name <span style="color:var(--text-dim);font-weight:400;">(optional label)</span></label>
+                <input type="text" :value="vars.CUSTOM_PROVIDER_NAME||''" @input="vars.CUSTOM_PROVIDER_NAME=$event.target.value"
+                       placeholder="e.g. Groq, Together, Perplexity">
+              </div>
+              <div class="field-gap">
+                <label class="field-label">Base URL</label>
+                <input type="text" :value="vars.CUSTOM_PROVIDER_BASE_URL||''" @input="vars.CUSTOM_PROVIDER_BASE_URL=$event.target.value"
+                       placeholder="https://api.groq.com/openai/v1">
+                <p class="hint">Any OpenAI-compatible endpoint. For more providers configure additional ones from the <a href="/?force=1" style="color:var(--accent2);">Hermes Dashboard</a> → Keys tab.</p>
+              </div>
+            </div>
+          </template>
+
+          <div class="field-gap" x-show="selectedProvider && providerMap[selectedProvider]?.key">
+            <label class="field-label" x-text="providerMap[selectedProvider]?.keyLabel || 'API Key'"></label>
             <input type="password"
                    :value="selectedProvider ? (vars[providerMap[selectedProvider]?.key]||'') : ''"
-                   @input="if(selectedProvider) vars[providerMap[selectedProvider].key]=$event.target.value"
+                   @input="if(selectedProvider && providerMap[selectedProvider]?.key) vars[providerMap[selectedProvider].key]=$event.target.value"
                    :placeholder="selectedProvider ? (providerMap[selectedProvider]?.placeholder||'Paste your API key') : ''">
           </div>
+
+          <!-- AWS Bedrock extra fields (after Access Key ID) -->
+          <template x-if="selectedProvider === 'AWS Bedrock'">
+            <div>
+              <div class="field-gap">
+                <label class="field-label">AWS Secret Access Key</label>
+                <input type="password" :value="vars.AWS_SECRET_ACCESS_KEY||''" @input="vars.AWS_SECRET_ACCESS_KEY=$event.target.value"
+                       placeholder="wJalr...">
+              </div>
+              <div class="field-gap">
+                <label class="field-label">AWS Region</label>
+                <input type="text" :value="vars.AWS_DEFAULT_REGION||''" @input="vars.AWS_DEFAULT_REGION=$event.target.value"
+                       placeholder="us-east-1">
+                <p class="hint">Region where your Bedrock models are enabled (e.g. <code>us-east-1</code>, <code>us-west-2</code>, <code>eu-west-1</code>).</p>
+              </div>
+            </div>
+          </template>
+
+          <!-- Azure Foundry extra field (after API Key) -->
+          <template x-if="selectedProvider === 'Azure Foundry'">
+            <div>
+              <div class="field-gap">
+                <label class="field-label">Endpoint URL</label>
+                <input type="text" :value="vars.AZURE_FOUNDRY_BASE_URL||''" @input="vars.AZURE_FOUNDRY_BASE_URL=$event.target.value"
+                       placeholder="https://your-resource.services.ai.azure.com/models">
+                <p class="hint">Your Azure AI Foundry endpoint URL — required.</p>
+              </div>
+            </div>
+          </template>
 
           <div class="field-gap" x-show="selectedProvider">
             <label class="field-label">LLM Model</label>
             <input type="text" :value="vars.LLM_MODEL||''" @input="vars.LLM_MODEL=$event.target.value"
-                   placeholder="e.g. openai/gpt-4o-mini  or  deepseek/deepseek-chat">
-            <p class="hint">OpenRouter format: <code>provider/model-name</code></p>
+                   :placeholder="selectedProvider === 'xAI Grok (SuperGrok)' || selectedProvider === 'xAI' ? 'e.g. grok-4.3'
+                     : selectedProvider === 'Anthropic (Claude)' ? 'e.g. claude-sonnet-4-20250514'
+                     : selectedProvider === 'AWS Bedrock' ? 'e.g. anthropic.claude-3-5-sonnet-20241022-v2:0'
+                     : selectedProvider === 'Fireworks AI' ? 'e.g. accounts/fireworks/models/llama-v3p1-70b-instruct'
+                     : selectedProvider === 'Custom Endpoint' || selectedProvider === 'Azure Foundry' ? 'model-id as required by the endpoint'
+                     : 'e.g. openai/gpt-4o-mini  or  deepseek/deepseek-chat'">
+            <p class="hint" x-show="selectedProvider === 'xAI Grok (SuperGrok)' || selectedProvider === 'xAI'">e.g. <code>grok-4.3</code>, <code>grok-4.20-0309-reasoning</code></p>
+            <p class="hint" x-show="selectedProvider === 'Anthropic (Claude)'">e.g. <code>claude-sonnet-4-20250514</code>, <code>claude-opus-4-20250115</code></p>
+            <p class="hint" x-show="selectedProvider === 'AWS Bedrock'">e.g. <code>anthropic.claude-3-5-sonnet-20241022-v2:0</code>, <code>us.meta.llama3-2-90b-instruct-v1:0</code></p>
+            <p class="hint" x-show="selectedProvider === 'Fireworks AI'">Format: <code>accounts/fireworks/models/&lt;model-id&gt;</code></p>
+            <p class="hint" x-show="!['xAI Grok (SuperGrok)','xAI','Anthropic (Claude)','AWS Bedrock','Fireworks AI','Custom Endpoint','Azure Foundry'].includes(selectedProvider) && selectedProvider">Check your provider's docs for model names. OpenRouter format: <code>provider/model-name</code></p>
           </div>
         </div>
+
+        <!-- xAI Grok SuperGrok OAuth — shown when xAI provider is selected -->
+        <div class="card" x-show="selectedProvider === 'xAI Grok (SuperGrok)'" style="border-left:3px solid #6272ff;padding:14px 16px;">
+          <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#c9d1d9;">xAI Grok — SuperGrok OAuth</p>
+
+          <!-- not yet started -->
+          <template x-if="xai.status === 'none'">
+            <div>
+              <p class="hint" style="margin:0 0 10px;">Connect your SuperGrok subscription. Click below — a new tab will open where you enter a short code to authorise this deployment. No API key needed; tokens auto-refresh.</p>
+              <button class="btn primary" style="width:100%;" @click="startXaiOauth()" :disabled="xai.loading">
+                <span x-show="!xai.loading">Connect SuperGrok</span>
+                <span x-show="xai.loading">Starting…</span>
+              </button>
+              <p x-show="xai.error" x-text="xai.error" style="color:var(--red);margin:8px 0 0;font-size:12px;"></p>
+            </div>
+          </template>
+
+          <!-- pending — show code -->
+          <template x-if="xai.status === 'pending'">
+            <div>
+              <p class="hint" style="margin:0 0 8px;">A new tab opened. Enter the code below on the xAI page, then come back here.</p>
+              <a :href="xai.verificationUri" target="_blank"
+                 style="display:block;color:var(--accent2);font-size:12px;word-break:break-all;margin-bottom:10px;"
+                 x-text="xai.verificationUri"></a>
+              <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:14px;text-align:center;margin-bottom:10px;">
+                <span style="font-family:var(--font-mono);font-size:26px;letter-spacing:5px;color:#c9d1d9;" x-text="xai.userCode"></span>
+              </div>
+              <p class="hint" style="text-align:center;margin:0;">⏳ Waiting for authorisation…</p>
+            </div>
+          </template>
+
+          <!-- authorized -->
+          <template x-if="xai.status === 'authorized'">
+            <div style="text-align:center;padding:6px 0;">
+              <p style="color:var(--green);font-size:13px;margin:0 0 4px;">✓ SuperGrok authorised</p>
+              <p class="hint" style="margin:0;">Gateway is restarting with xAI OAuth. Set model below (e.g. <code>grok-4.3</code>).</p>
+            </div>
+          </template>
+
+          <!-- error / expired -->
+          <template x-if="xai.status === 'error' || xai.status === 'expired'">
+            <div>
+              <p style="color:var(--red);font-size:13px;margin:0 0 8px;" x-text="xai.error || 'Authorisation failed or expired'"></p>
+              <button class="btn primary" style="width:100%;" @click="xai.status='none'; xai.error=''; startXaiOauth()">
+                Try Again
+              </button>
+            </div>
+          </template>
+        </div>
+
+        <!-- Configured LLM Providers -->
+        <template x-if="configuredProviders.length > 0">
+          <div>
+            <div class="section-label" style="margin-top:20px;">
+              Configured Providers
+            </div>
+            <div class="card" style="padding:0 16px;">
+              <template x-for="(cp, idx) in configuredProviders" :key="cp.name">
+                <div :style="idx < configuredProviders.length - 1 ? 'border-bottom:1px solid var(--border);' : ''">
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;">
+                    <div style="display:flex;flex-direction:column;gap:3px;min-width:0;">
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:13px;color:#c9d1d9;" x-text="cp.name"></span>
+                        <span x-show="cp.isOauth"
+                              style="font-size:10px;font-family:var(--font-mono);background:rgba(98,114,255,.15);color:var(--accent2);padding:2px 6px;border-radius:4px;">
+                          OAuth
+                        </span>
+                        <span x-show="!cp.isOauth && !cp.isCustom && !cp.isBedrock && !cp.isAzure"
+                              style="font-size:10px;font-family:var(--font-mono);background:rgba(63,185,80,.12);color:var(--green);padding:2px 6px;border-radius:4px;">
+                          API key set
+                        </span>
+                        <span x-show="cp.isBedrock"
+                              style="font-size:10px;font-family:var(--font-mono);background:rgba(255,153,0,.15);color:#f90;padding:2px 6px;border-radius:4px;">
+                          AWS
+                        </span>
+                        <span x-show="cp.isAzure"
+                              style="font-size:10px;font-family:var(--font-mono);background:rgba(0,120,212,.15);color:#0078d4;padding:2px 6px;border-radius:4px;">
+                          Azure
+                        </span>
+                        <span x-show="cp.isCustom"
+                              style="font-size:10px;font-family:var(--font-mono);background:rgba(210,153,34,.12);color:var(--yellow);padding:2px 6px;border-radius:4px;">
+                          Custom
+                        </span>
+                      </div>
+                      <span x-show="cp.model" x-text="cp.model"
+                            style="font-size:12px;font-family:var(--font-mono);color:var(--text-dim);"></span>
+                    </div>
+                    <button class="btn sm danger" style="flex-shrink:0;margin-left:12px;"
+                            @click="removeProvider(cp.providerKey)">Remove</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
 
         <!-- Messaging Channels -->
         <div class="section-label">
@@ -1270,19 +1419,34 @@ function app() {
     tools,
 
     providerMap: {
-      'OpenRouter':         { key: 'OPENROUTER_API_KEY',  placeholder: 'sk-or-...' },
-      'DeepSeek':           { key: 'DEEPSEEK_API_KEY',     placeholder: 'sk-...'    },
-      'DashScope':          { key: 'DASHSCOPE_API_KEY',    placeholder: ''          },
-      'GLM / Z.AI':         { key: 'GLM_API_KEY',          placeholder: ''          },
-      'Kimi':               { key: 'KIMI_API_KEY',          placeholder: ''          },
-      'MiniMax':            { key: 'MINIMAX_API_KEY',       placeholder: ''          },
-      'HuggingFace':        { key: 'HF_TOKEN',              placeholder: 'hf_...'   },
-      'NVIDIA NIM':         { key: 'NVIDIA_API_KEY',        placeholder: 'nvapi-...' },
-      'Arcee AI':           { key: 'ARCEE_API_KEY',         placeholder: ''          },
-      'Step Plan':          { key: 'STEPFUN_API_KEY',       placeholder: ''          },
-      'Vercel AI Gateway':  { key: 'AI_GATEWAY_API_KEY',    placeholder: ''          },
-      'Google AI Studio':   { key: 'GEMINI_API_KEY',        placeholder: 'AIza...'   },
+      'OpenRouter':           { key: 'OPENROUTER_API_KEY',  modelKey: '_MODEL_OPENROUTER_API_KEY',  placeholder: 'sk-or-...' },
+      'DeepSeek':             { key: 'DEEPSEEK_API_KEY',    modelKey: '_MODEL_DEEPSEEK_API_KEY',    placeholder: 'sk-...'    },
+      'Qwen Cloud':           { key: 'DASHSCOPE_API_KEY',   modelKey: '_MODEL_DASHSCOPE_API_KEY',   placeholder: ''          },
+      'GLM / Z.AI':           { key: 'GLM_API_KEY',         modelKey: '_MODEL_GLM_API_KEY',         placeholder: ''          },
+      'Kimi':                 { key: 'KIMI_API_KEY',         modelKey: '_MODEL_KIMI_API_KEY',        placeholder: ''          },
+      'MiniMax':              { key: 'MINIMAX_API_KEY',      modelKey: '_MODEL_MINIMAX_API_KEY',     placeholder: ''          },
+      'HuggingFace':          { key: 'HF_TOKEN',             modelKey: '_MODEL_HF_TOKEN',            placeholder: 'hf_...'   },
+      'NVIDIA NIM':           { key: 'NVIDIA_API_KEY',       modelKey: '_MODEL_NVIDIA_API_KEY',      placeholder: 'nvapi-...' },
+      'NovitaAI':             { key: 'NOVITA_API_KEY',       modelKey: '_MODEL_NOVITA_API_KEY',      placeholder: ''          },
+      'Arcee AI':             { key: 'ARCEEAI_API_KEY',      modelKey: '_MODEL_ARCEEAI_API_KEY',     placeholder: ''          },
+      'Step Plan':            { key: 'STEPFUN_API_KEY',      modelKey: '_MODEL_STEPFUN_API_KEY',     placeholder: ''          },
+      'Google AI Studio':     { key: 'GEMINI_API_KEY',         modelKey: '_MODEL_GEMINI_API_KEY',         placeholder: 'AIza...'   },
+      'Fireworks AI':         { key: 'FIREWORKS_API_KEY',      modelKey: '_MODEL_FIREWORKS_API_KEY',      placeholder: 'fw_...'    },
+      'Anthropic (Claude)':   { key: 'ANTHROPIC_API_KEY',      modelKey: '_MODEL_ANTHROPIC_API_KEY',      placeholder: 'sk-ant-...' },
+      'xAI':                  { key: 'XAI_API_KEY',             modelKey: '_MODEL_XAI_API_KEY',             placeholder: 'xai-...', keyLabel: 'xAI API Key' },
+      'AWS Bedrock':          { key: 'AWS_ACCESS_KEY_ID',       modelKey: '_MODEL_AWS_ACCESS_KEY_ID',       placeholder: 'AKIA...', isBedrock: true, keyLabel: 'AWS Access Key ID' },
+      'GitHub Copilot':       { key: 'COPILOT_GITHUB_TOKEN',   modelKey: '_MODEL_COPILOT_GITHUB_TOKEN',   placeholder: 'ghp_... or gho_...', keyLabel: 'GitHub Token' },
+      'GMI Cloud':            { key: 'GMI_API_KEY',              modelKey: '_MODEL_GMI_API_KEY',              placeholder: '' },
+      'OpenCode Zen':         { key: 'OPENCODE_ZEN_API_KEY',    modelKey: '_MODEL_OPENCODE_ZEN_API_KEY',    placeholder: '' },
+      'OpenCode Go':          { key: 'OPENCODE_GO_API_KEY',     modelKey: '_MODEL_OPENCODE_GO_API_KEY',     placeholder: '' },
+      'Kilo Code':            { key: 'KILOCODE_API_KEY',         modelKey: '_MODEL_KILOCODE_API_KEY',         placeholder: '' },
+      'Ollama Cloud':         { key: 'OLLAMA_API_KEY',           modelKey: '_MODEL_OLLAMA_API_KEY',           placeholder: '' },
+      'Azure Foundry':        { key: 'AZURE_FOUNDRY_API_KEY',   modelKey: '_MODEL_AZURE_FOUNDRY_API_KEY',   placeholder: '', isAzure: true },
+      'Custom Endpoint':      { key: 'CUSTOM_PROVIDER_API_KEY',modelKey: '_MODEL_CUSTOM_PROVIDER_API_KEY',placeholder: '',         isCustom: true },
+      'xAI Grok (SuperGrok)': { key: null,                     modelKey: '_MODEL_XAI_OAUTH',              isOauth: 'xai' },
     },
+
+    xai: { loading: false, userCode: '', verificationUri: '', status: 'none', error: '' },
 
     selectedProvider: '',
 
@@ -1295,16 +1459,75 @@ function app() {
 
     get pendingCount() { return this.pending.length; },
 
+    get configuredProviders() {
+      const list = [];
+      for (const [name, p] of Object.entries(this.providerMap)) {
+        if (p.isOauth === 'xai') {
+          if (this.xai.status === 'authorized') {
+            list.push({ providerKey: name, name, model: this.vars['_MODEL_XAI_OAUTH'] || '', isOauth: true });
+          }
+        } else if (p.isCustom && this.vars[p.key]) {
+          const displayName = this.vars.CUSTOM_PROVIDER_NAME || this.vars.CUSTOM_PROVIDER_BASE_URL || 'Custom Endpoint';
+          list.push({ providerKey: name, name: displayName, model: p.modelKey ? (this.vars[p.modelKey] || '') : '', key: p.key, isCustom: true });
+        } else if (p.isAzure && this.vars[p.key] && this.vars.AZURE_FOUNDRY_BASE_URL) {
+          list.push({ providerKey: name, name, model: p.modelKey ? (this.vars[p.modelKey] || '') : '', key: p.key, isAzure: true });
+        } else if (p.key && !p.isCustom && !p.isAzure && this.vars[p.key]) {
+          list.push({ providerKey: name, name, model: p.modelKey ? (this.vars[p.modelKey] || '') : '', key: p.key, modelKey: p.modelKey || null, isBedrock: !!p.isBedrock });
+        }
+      }
+      return list;
+    },
+
     get isSetupDone() {
-      const keys = Object.values(this.providerMap).map(p => p.key);
-      return !!(this.vars.LLM_MODEL && keys.some(k => this.vars[k]));
+      return this.configuredProviders.length > 0 && !!this.vars.LLM_MODEL;
     },
 
     onProviderChange() {
-      // Clear keys from other providers when switching
-      for (const [name, p] of Object.entries(this.providerMap)) {
-        if (name !== this.selectedProvider) this.vars[p.key] = '';
+      const p = this.providerMap[this.selectedProvider];
+      if (!p) return;
+      // Load the per-provider stored model so the model field pre-fills.
+      const storedModel = p.modelKey ? this.vars[p.modelKey] : null;
+      if (storedModel) this.vars.LLM_MODEL = storedModel;
+      // Reset xAI flow state if switching away (unless already fully authorized).
+      if (p.isOauth !== 'xai' && this.xai.status !== 'authorized') {
+        this.xai.status = 'none';
+        this.xai.userCode = '';
+        this.xai.verificationUri = '';
+        this.xai.error = '';
       }
+    },
+
+    async removeProvider(providerKey) {
+      const p = this.providerMap[providerKey];
+      if (!p) return;
+      if (!confirm(`Remove ${providerKey} provider?`)) return;
+      if (p.isOauth === 'xai') {
+        await fetch('/setup/api/oauth/xai', { method: 'DELETE' });
+        this.xai.status = 'none';
+      }
+      if (p.key)      this.vars[p.key]      = '';
+      if (p.modelKey) this.vars[p.modelKey] = '';
+      if (p.isCustom) {
+        this.vars.CUSTOM_PROVIDER_BASE_URL = '';
+        this.vars.CUSTOM_PROVIDER_NAME     = '';
+      }
+      if (p.isBedrock) {
+        this.vars.AWS_SECRET_ACCESS_KEY = '';
+        this.vars.AWS_DEFAULT_REGION    = '';
+      }
+      if (p.isAzure) {
+        this.vars.AZURE_FOUNDRY_BASE_URL = '';
+      }
+      if (this.selectedProvider === providerKey) this.selectedProvider = '';
+      try {
+        await fetch('/setup/api/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vars: { ...this.vars }, _restart: true }),
+        });
+      } catch {}
+      await this.loadConfig();
+      this.notify(`${providerKey} removed`, true);
     },
 
     clearChannel(ch) {
@@ -1325,6 +1548,36 @@ function app() {
       if (t.key === 'BROWSERBASE_API_KEY') this.vars.BROWSERBASE_PROJECT_ID = '';
     },
 
+    async startXaiOauth() {
+      this.xai.loading = true;
+      this.xai.error = '';
+      try {
+        const r = await fetch('/setup/api/oauth/xai/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: this.vars.LLM_MODEL || 'grok-4.3' }),
+        });
+        const d = await r.json();
+        if (!r.ok) { this.xai.error = d.error || 'Failed to start OAuth'; this.xai.loading = false; return; }
+        this.xai.userCode = d.user_code;
+        this.xai.verificationUri = d.verification_uri;
+        this.xai.status = 'pending';
+        window.open(d.verification_uri, '_blank');
+        const poll = setInterval(async () => {
+          const s = await fetch('/setup/api/oauth/xai/status').then(r2 => r2.json()).catch(() => ({ status: 'pending' }));
+          this.xai.status = s.status;
+          if (s.status === 'authorized') {
+            clearInterval(poll);
+            await this.loadConfig();
+          } else if (s.status === 'error' || s.status === 'expired') {
+            this.xai.error = s.error || 'Authorization failed or expired';
+            clearInterval(poll);
+          }
+        }, 3000);
+      } catch (e) { this.xai.error = 'Network error: ' + e.message; }
+      this.xai.loading = false;
+    },
+
     async init() {
       await Promise.all([this.loadConfig(), this.loadStatus(), this.loadLogs(), this.loadPairing()]);
       setInterval(() => this.loadStatus(),  5000);
@@ -1338,10 +1591,9 @@ function app() {
         if (r.ok) {
           const d = await r.json();
           this.vars = d.vars || {};
-          // Detect active provider
-          for (const [name, p] of Object.entries(this.providerMap)) {
-            if (this.vars[p.key]) { this.selectedProvider = name; break; }
-          }
+          // Refresh xAI OAuth status (drives configuredProviders computed getter).
+          const xs = await fetch('/setup/api/oauth/xai/status').then(r2 => r2.json()).catch(() => ({ status: 'none' }));
+          this.xai.status = xs.status;
           // Detect active channels
           this.channelsEnabled = {
             telegram:   !!(this.vars.TELEGRAM_BOT_TOKEN),
@@ -1356,25 +1608,30 @@ function app() {
           for (const t of this.tools) {
             this.toolsEnabled[t.key] = !!(this.vars[t.key]);
           }
-          // savedConfigComplete reflects the persisted server-side state.
-          // Masked secrets from the server still show truthy, so this
-          // mirrors the backend's is_config_complete() check.
-          const providerKeys = Object.values(this.providerMap).map(p => p.key);
-          this.savedConfigComplete = !!(this.vars.LLM_MODEL && providerKeys.some(k => this.vars[k]));
+          // savedConfigComplete: server has at least one provider + model.
+          this.savedConfigComplete = !!(this.vars.LLM_MODEL && this.configuredProviders.length > 0);
         }
       } catch {}
     },
 
     async saveConfig() {
       this.saving = true;
+      // Sync per-provider model key so the configured list shows the right model.
+      const p = this.selectedProvider ? this.providerMap[this.selectedProvider] : null;
+      if (p && this.vars.LLM_MODEL) {
+        if (p.modelKey) this.vars[p.modelKey] = this.vars.LLM_MODEL;
+      }
       try {
         const r = await fetch('/setup/api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ vars: { ...this.vars }, _restart: this.restartOnSave }),
         });
-        if (r.ok) { this.notify('Saved', true); await this.loadConfig(); }
-        else { const e = await r.json().catch(()=>{}); this.notify(e?.error||'Save failed', false); }
+        if (r.ok) {
+          this.notify('Saved', true);
+          this.selectedProvider = '';
+          await this.loadConfig();
+        } else { const e = await r.json().catch(()=>{}); this.notify(e?.error||'Save failed', false); }
       } catch(e) { this.notify('Save failed: '+e.message, false); }
       this.saving = false;
     },
