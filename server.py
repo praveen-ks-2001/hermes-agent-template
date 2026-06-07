@@ -272,21 +272,21 @@ def write_config_yaml(data: dict[str, str]) -> None:
     # --- INICIO MODIFICACIÓN MCP ---
     # Inyecta la configuración de MySQL usando las variables de entorno de Railway
     
-    db_host = data.get("DB_HOST", os.environ.get("DB_HOST", ""))
+db_host = data.get("DB_HOST", os.environ.get("DB_HOST", ""))
     if db_host:
-        # Recupera los servidores MCP existentes o crea un diccionario nuevo
         merged_mcp = dict(merged.get("mcp_servers") if isinstance(merged.get("mcp_servers"), dict) else {})
         
-        # Añade nuestra conexión a MySQL
+        # Inyección correcta para NPX
         merged_mcp["mysql_internal"] = {
             "command": "npx",
-            "args": [
-                "--host", db_host,
-                "--port", str(data.get("DB_PORT", os.environ.get("DB_PORT", "3306"))),
-                "--user", data.get("DB_USER", os.environ.get("DB_USER", "")),
-                "--password", data.get("DB_PASSWORD", os.environ.get("DB_PASSWORD", "")),
-                "--database", data.get("DB_NAME", os.environ.get("DB_NAME", ""))
-            ]
+            "args": ["-y", "@nilsir/mcp-server-mysql"],
+            "env": {
+                "MYSQL_HOST": db_host,
+                "MYSQL_PORT": str(data.get("DB_PORT", os.environ.get("DB_PORT", "3306"))),
+                "MYSQL_USER": data.get("DB_USER", os.environ.get("DB_USER", "")),
+                "MYSQL_PASSWORD": data.get("DB_PASSWORD", os.environ.get("DB_PASSWORD", "")),
+                "MYSQL_DATABASE": data.get("DB_NAME", os.environ.get("DB_NAME", ""))
+            }
         }
         merged["mcp_servers"] = merged_mcp
     # --- FIN MODIFICACIÓN MCP ---
