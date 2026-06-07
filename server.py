@@ -254,7 +254,42 @@ def write_config_yaml(data: dict[str, str]) -> None:
         }]
     else:
         merged.pop("custom_providers", None)
+    # Custom OpenAI-compatible endpoint — write custom_providers block when configured,
+    # remove it when not (safe on Railway where users don't hand-edit config.yaml).
+    custom_base_url = data.get("CUSTOM_PROVIDER_BASE_URL", "").strip()
+    if custom_base_url:
+        raw_name = data.get("CUSTOM_PROVIDER_NAME", "").strip() or custom_base_url
+        # Sanitise to a valid hermes provider name (lowercase alphanumeric + hyphens).
+        sanitized_name = re.sub(r"[^a-z0-9-]", "-", raw_name.lower()).strip("-") or "custom"
+        merged["custom_providers"] = [{
+            "name": sanitized_name,
+            "base_url": custom_base_url,
+            "key_env": "CUSTOM_PROVIDER_API_KEY",
+        }]
+    else:
+        merged.pop("custom_providers", None)
 
+    # --- INICIO MODIFICACIÓN MCP ---
+    # Inyecta la configuración de MySQL usando las variables de entorno de Railway
+    
+    db_host = data.get("DB_HOST", os.environ.get("DB_HOST", ""))
+    if db_host:
+        # Recupera los servidores MCP existentes o crea un diccionario nuevo
+        merged_mcp = dict(merged.get("mcp_servers") if isinstance(merged.get("mcp_servers"), dict) else {})
+        
+        # Añade nuestra conexión a MySQL
+        merged_mcp["mysql_internal"] = {
+            "command": "mcp-server-mysql",
+            "args": [
+                "--host", db_host,
+                "--port", str(data.get("DB_PORT", os.environ.get("DB_PORT", "3306"))),
+                "--user", data.get("DB_USER", os.environ.get("DB_USER", "")),
+                "--password", data.get("DB_PASSWORD", os.environ.get("DB_PASSWORD", "")),
+                "--database", data.get("DB_NAME", os.environ.get("DB_NAME", ""))
+            ]
+        }
+        merged["mcp_servers"] = merged_mcp
+    # --- FIN MODIFICACIÓN MCP ---
     with config_path.open("w") as f:
         yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False)
 
