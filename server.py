@@ -29,6 +29,8 @@ injected into every proxied HTML response so users can always return to the wiza
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -37,6 +39,7 @@ import signal
 import time
 from collections import deque
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -590,7 +593,7 @@ COOKIE_MAX_AGE = 7 * 86400  # 7 days
 COOKIE_SECRET = secrets.token_bytes(32)
 
 # Public paths — no auth required. Everything else is behind the cookie gate.
-PUBLIC_PATHS = {"/health", "/login", "/logout"}
+PUBLIC_PATHS = {"/health", "/login", "/logout", "/ingest/career-ops"}
 
 
 def _make_auth_token() -> str:
@@ -1422,6 +1425,115 @@ async def ws_proxy(websocket: WebSocket) -> None:
                 pass
 
 
+async def ingest_career_ops(request: Request):
+    """Receive Victor's sanitized Career-Ops feed via HMAC-authenticated POST."""
+    max_bytes = int(os.environ.get("CAREER_OPS_MAX_BYTES", "1048576"))
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                return JSONResponse({"error": "Payload too large"}, status_code=413)
+        except ValueError:
+            return JSONResponse({"error": "Invalid Content-Length"}, status_code=400)
+
+    secret = os.environ.get("CAREER_OPS_WEBHOOK_SECRET", "")
+    if not secret:
+        return JSONResponse({"error": "Career-Ops ingest secret is not configured"}, status_code=503)
+
+    raw_body = await request.body()
+    if len(raw_body) > max_bytes:
+        return JSONResponse({"error": "Payload too large"}, status_code=413)
+
+    signature = (
+        request.headers.get("X-Webhook-Signature", "")
+        or request.headers.get("X-Hermes-Signature-256", "")
+    ).strip()
+    if signature.startswith("sha256="):
+        signature = signature[len("sha256="):]
+    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    if not signature or not hmac.compare_digest(signature, expected):
+        return JSONResponse({"error": "Invalid signature"}, status_code=401)
+
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Cannot parse body"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Payload must be a JSON object"}, status_code=400)
+
+    event_type = str(payload.get("event_type") or "career_ops.feed.updated")
+    if event_type != "career_ops.feed.updated":
+        return JSONResponse({"status": "ignored", "event": event_type})
+
+    schema_version = str(payload.get("schema_version") or "")
+    generated_at = str(payload.get("generated_at") or "")
+    if not schema_version or not generated_at:
+        return JSONResponse({"error": "Missing required fields: schema_version and generated_at"}, status_code=422)
+
+    delivery_id = request.headers.get("X-Request-ID") or str(payload.get("feed_id") or "") or generated_at
+    digest = hashlib.sha256(raw_body).hexdigest()
+    received_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    base_dir = Path(os.environ.get("CAREER_OPS_FEED_DIR", str(Path(HERMES_HOME) / "career-ops")))
+    feeds_dir = base_dir / "feeds"
+    feeds_dir.mkdir(parents=True, exist_ok=True)
+    latest_path = base_dir / "latest.json"
+    manifest_path = base_dir / "manifest.json"
+
+    previous_hash = None
+    history = []
+    if manifest_path.exists():
+        try:
+            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+            previous_hash = previous.get("latest", {}).get("sha256")
+            history = list(previous.get("history") or [])
+        except Exception:
+            previous_hash = None
+            history = []
+    duplicate = previous_hash == digest
+
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", delivery_id)[:120] or digest[:16]
+    immutable_path = feeds_dir / f"{safe_id}.json"
+    immutable_path.write_bytes(raw_body)
+    latest_path.write_bytes(raw_body)
+
+    opportunities = payload.get("opportunities") or []
+    reminders = payload.get("reminders") or []
+    latest_entry = {
+        "feed_id": delivery_id,
+        "generated_at": generated_at,
+        "received_at": received_at,
+        "schema_version": schema_version,
+        "sha256": digest,
+        "path": str(immutable_path),
+        "opportunity_count": len(opportunities) if isinstance(opportunities, list) else 0,
+        "reminder_count": len(reminders) if isinstance(reminders, list) else 0,
+    }
+    if not history or history[-1].get("sha256") != digest:
+        history.append(latest_entry)
+    manifest_path.write_text(json.dumps({"latest": latest_entry, "history": history[-26:]}, indent=2, sort_keys=True), encoding="utf-8")
+
+    old_files = sorted(feeds_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[26:]
+    for old_file in old_files:
+        try:
+            old_file.unlink()
+        except Exception:
+            pass
+
+    return JSONResponse(
+        {
+            "status": "duplicate" if duplicate else "accepted",
+            "route": "career-ops",
+            "event": event_type,
+            "delivery_id": delivery_id,
+            "sha256": digest,
+            "opportunity_count": latest_entry["opportunity_count"],
+            "reminder_count": latest_entry["reminder_count"],
+        },
+        status_code=200 if duplicate else 202,
+    )
+
+
 ANY_METHOD = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 routes = [
@@ -1430,6 +1542,7 @@ routes = [
     Route("/login",                             page_login,          methods=["GET"]),
     Route("/login",                             login_post,          methods=["POST"]),
     Route("/logout",                            logout),
+    Route("/ingest/career-ops",                 ingest_career_ops,   methods=["POST"]),
 
     # Our setup wizard + management API, all under /setup/* (cookie-auth guarded).
     Route("/setup",                             page_index),
