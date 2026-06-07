@@ -269,14 +269,11 @@ def write_config_yaml(data: dict[str, str]) -> None:
     else:
         merged.pop("custom_providers", None)
 
-    # --- INICIO MODIFICACIÓN MCP ---
-    # Inyecta la configuración de MySQL usando las variables de entorno de Railway
-    
-db_host = data.get("DB_HOST", os.environ.get("DB_HOST", ""))
+# --- INICIO MODIFICACIÓN MCP ---
+    db_host = data.get("DB_HOST", os.environ.get("DB_HOST", ""))
     if db_host:
         merged_mcp = dict(merged.get("mcp_servers") if isinstance(merged.get("mcp_servers"), dict) else {})
         
-        # Inyección correcta para NPX
         merged_mcp["mysql_internal"] = {
             "command": "npx",
             "args": ["-y", "@nilsir/mcp-server-mysql"],
