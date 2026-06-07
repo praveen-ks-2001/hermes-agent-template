@@ -279,7 +279,7 @@ def write_config_yaml(data: dict[str, str]) -> None:
         
         # Añade nuestra conexión a MySQL
         merged_mcp["mysql_internal"] = {
-            "command": "mcp-server-mysql",
+            "command": "npx",
             "args": [
                 "--host", db_host,
                 "--port", str(data.get("DB_PORT", os.environ.get("DB_PORT", "3306"))),
