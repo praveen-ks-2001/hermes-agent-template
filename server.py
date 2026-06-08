@@ -62,6 +62,15 @@ ENV_FILE = Path(HERMES_HOME) / ".env"
 PAIRING_DIR = Path(HERMES_HOME) / "pairing"
 PAIRING_TTL = 3600
 
+# Optional multi-profile gateway supervision. The template always manages the
+# default profile; users can opt into additional Hermes profiles without editing
+# this repository by setting HERMES_MANAGED_PROFILES or writing
+# /data/.hermes/managed-profiles.json on the persistent Railway volume.
+MANAGED_PROFILES_FILE = Path(os.environ.get(
+    "HERMES_MANAGED_PROFILES_FILE",
+    str(Path(HERMES_HOME) / "managed-profiles.json"),
+))
+
 # Native Hermes dashboard — runs on loopback, fronted by our reverse proxy.
 HERMES_DASHBOARD_HOST = "127.0.0.1"
 HERMES_DASHBOARD_PORT = int(os.environ.get("HERMES_DASHBOARD_PORT", "9119"))
@@ -555,6 +564,162 @@ def is_config_complete(data: dict[str, str] | None = None) -> bool:
     return has_model and has_provider
 
 
+def _truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _safe_profile_name(value: object) -> str | None:
+    """Return a Hermes profile name safe to pass to `hermes -p`, or None."""
+    name = str(value or "").strip()
+    if not name or name == "default":
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name):
+        print(f"[profiles] ignoring invalid profile name: {name!r}", flush=True)
+        return None
+    return name
+
+
+def _profile_home(profile: str) -> Path:
+    return Path(HERMES_HOME) / "profiles" / profile
+
+
+def _channel_values(home: Path) -> dict[str, str]:
+    """Messaging credentials that imply a gateway can connect somewhere.
+
+    Only include values that can conflict if reused by multiple gateway
+    processes. Allow-lists such as TELEGRAM_ALLOWED_USERS are intentionally
+    excluded.
+    """
+    env = read_env(home / ".env")
+    keys = {
+        "TELEGRAM_BOT_TOKEN",
+        "DISCORD_BOT_TOKEN",
+        "SLACK_BOT_TOKEN",
+        "SLACK_APP_TOKEN",
+        "MATTERMOST_TOKEN",
+        "MATRIX_ACCESS_TOKEN",
+        "EMAIL_ADDRESS",
+    }
+    return {k: v for k in keys if (v := env.get(k, "").strip())}
+
+
+def _profile_has_channel(home: Path) -> bool:
+    env = read_env(home / ".env")
+    for key in CHANNEL_MAP.values():
+        if key == "WHATSAPP_ENABLED":
+            if _truthy(env.get(key)):
+                return True
+            continue
+        if env.get(key, "").strip():
+            return True
+    return False
+
+
+def _discover_profiles() -> list[str]:
+    profiles_dir = Path(HERMES_HOME) / "profiles"
+    if not profiles_dir.exists():
+        return []
+    out: list[str] = []
+    for child in sorted(profiles_dir.iterdir(), key=lambda p: p.name):
+        if not child.is_dir():
+            continue
+        name = _safe_profile_name(child.name)
+        if name and _profile_has_channel(child):
+            out.append(name)
+    return out
+
+
+def _profile_entries_from_value(value: object) -> tuple[list[str], bool]:
+    """Parse a profile-list value. Returns (names, wants_discovery).
+
+    Accepts comma-separated strings, JSON lists, or dicts with:
+      {"profiles": ["documenter", {"name": "finance", "enabled": true}],
+       "auto_discover": true}
+    """
+    names: list[str] = []
+    wants_discovery = False
+
+    if value is None:
+        return names, wants_discovery
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return names, wants_discovery
+        if raw.lower() in {"all", "auto", "discover"}:
+            return names, True
+        if raw[0] in "[{":
+            try:
+                return _profile_entries_from_value(json.loads(raw))
+            except json.JSONDecodeError as e:
+                print(f"[profiles] could not parse HERMES_MANAGED_PROFILES JSON: {e}", flush=True)
+                return names, wants_discovery
+        items: object = [part.strip() for part in raw.split(",") if part.strip()]
+        return _profile_entries_from_value(items)
+
+    if isinstance(value, dict):
+        wants_discovery = _truthy(str(value.get("auto_discover", "")))
+        profiles = value.get("profiles", [])
+        parsed, nested_discovery = _profile_entries_from_value(profiles)
+        return parsed, wants_discovery or nested_discovery
+
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                if item.get("enabled", True) is False:
+                    continue
+                name = _safe_profile_name(item.get("name") or item.get("profile"))
+            else:
+                if str(item).strip().lower() in {"all", "auto", "discover"}:
+                    wants_discovery = True
+                    continue
+                name = _safe_profile_name(item)
+            if name:
+                names.append(name)
+        return names, wants_discovery
+
+    return names, wants_discovery
+
+
+def configured_managed_profiles() -> list[str]:
+    """Profiles the Railway wrapper should supervise in addition to default.
+
+    Configuration sources, in order:
+    - HERMES_MANAGED_PROFILES env var (comma list, JSON list, JSON object, or `all`)
+    - /data/.hermes/managed-profiles.json by default
+    - HERMES_AUTO_START_PROFILES=true to discover every configured profile
+
+    Duplicates and invalid names are removed. `default` is never returned.
+    """
+    names: list[str] = []
+    wants_discovery = _truthy(os.environ.get("HERMES_AUTO_START_PROFILES"))
+
+    env_names, env_discovery = _profile_entries_from_value(os.environ.get("HERMES_MANAGED_PROFILES", ""))
+    names.extend(env_names)
+    wants_discovery = wants_discovery or env_discovery
+
+    if MANAGED_PROFILES_FILE.exists():
+        try:
+            file_value = json.loads(MANAGED_PROFILES_FILE.read_text())
+            file_names, file_discovery = _profile_entries_from_value(file_value)
+            names.extend(file_names)
+            wants_discovery = wants_discovery or file_discovery
+        except Exception as e:
+            print(f"[profiles] could not read {MANAGED_PROFILES_FILE}: {e}", flush=True)
+
+    if wants_discovery:
+        names.extend(_discover_profiles())
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        safe = _safe_profile_name(name)
+        if safe and safe not in seen:
+            deduped.append(safe)
+            seen.add(safe)
+    return deduped
+
+
 def mask(data: dict[str, str]) -> dict[str, str]:
     return {
         k: (v[:8] + "***" if len(v) > 8 else "***") if k in SECRET_KEYS and v else v
@@ -745,40 +910,73 @@ async def logout(request: Request) -> Response:
 
 # ── Gateway manager ───────────────────────────────────────────────────────────
 class Gateway:
-    def __init__(self):
+    def __init__(
+        self,
+        name: str = "default",
+        profile: str | None = None,
+        shared_logs: deque[str] | None = None,
+    ):
+        self.name = name
+        self.profile = profile
         self.proc: asyncio.subprocess.Process | None = None
         self.state = "stopped"
         self.logs: deque[str] = deque(maxlen=500)
+        self.shared_logs = shared_logs
         self.started_at: float | None = None
         self.restarts = 0
+
+    @property
+    def home(self) -> Path:
+        return Path(HERMES_HOME) if self.profile is None else _profile_home(self.profile)
+
+    @property
+    def env_file(self) -> Path:
+        return self.home / ".env"
+
+    def _log(self, line: str):
+        prefix = "gateway" if self.profile is None else f"gateway:{self.profile}"
+        msg = f"[{prefix}] {line}"
+        self.logs.append(msg)
+        if self.shared_logs is not None:
+            self.shared_logs.append(msg)
+
+    def _command(self) -> list[str]:
+        if self.profile is None:
+            return ["hermes", "gateway", "run"]
+        return ["hermes", "-p", self.profile, "gateway", "run"]
 
     async def start(self):
         if self.proc and self.proc.returncode is None:
             return
         self.state = "starting"
         try:
-            # .env values take priority over Railway env vars.
-            # We build the env this way so hermes's own dotenv loading
-            # (which reads the same file) doesn't shadow our values.
+            # .env values take priority over Railway env vars. For profile
+            # gateways we still keep HERMES_HOME pointed at the root Hermes home
+            # so `hermes -p <profile>` resolves ~/.hermes/profiles/<name>.
             env = {**os.environ, "HERMES_HOME": HERMES_HOME}
-            env.update(read_env(ENV_FILE))
+            env.update(read_env(self.env_file))
             model = env.get("LLM_MODEL", "")
             provider_key = next((env.get(k, "") for k in PROVIDER_KEYS if env.get(k)), "")
-            print(f"[gateway] model={model or '⚠ NOT SET'} | provider_key={'set' if provider_key else '⚠ NOT SET'}", flush=True)
-            # Write config.yaml so hermes picks up the model (env vars alone aren't always enough)
-            write_config_yaml(read_env(ENV_FILE))
+            self._log(f"model={model or '⚠ NOT SET'} | provider_key={'set' if provider_key else '⚠ NOT SET'}")
+
+            # The admin UI owns only the default profile's .env/config. Named
+            # profiles keep their own config.yaml and .env under profiles/<name>.
+            if self.profile is None:
+                write_config_yaml(read_env(ENV_FILE))
+
             self.proc = await asyncio.create_subprocess_exec(
-                "hermes", "gateway",
+                *self._command(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
             )
             self.state = "running"
             self.started_at = time.time()
+            self._log(f"spawned pid={self.proc.pid}")
             asyncio.create_task(self._drain())
         except Exception as e:
             self.state = "error"
-            self.logs.append(f"[error] Failed to start: {e}")
+            self._log(f"[error] Failed to start: {e}")
 
     async def stop(self):
         if not self.proc or self.proc.returncode is not None:
@@ -803,10 +1001,18 @@ class Gateway:
         assert self.proc and self.proc.stdout
         async for raw in self.proc.stdout:
             line = ANSI_ESCAPE.sub("", raw.decode(errors="replace").rstrip())
-            self.logs.append(line)
+            self._log(line)
         if self.state == "running":
             self.state = "error"
-            self.logs.append(f"[error] Gateway exited (code {self.proc.returncode})")
+            self._log(f"[error] Gateway exited (code {self.proc.returncode}); restarting in 5s")
+            asyncio.create_task(self._restart_after_exit())
+
+    async def _restart_after_exit(self):
+        await asyncio.sleep(5)
+        if self.state != "error":
+            return
+        self.restarts += 1
+        await self.start()
 
     def status(self) -> dict:
         uptime = int(time.time() - self.started_at) if self.started_at and self.state == "running" else None
@@ -818,7 +1024,97 @@ class Gateway:
         }
 
 
-gw = Gateway()
+class GatewayFleet:
+    """Supervise the default gateway plus optional profile gateways.
+
+    The default profile is controlled by the existing admin UI. Additional
+    profiles are configured outside the repo via HERMES_MANAGED_PROFILES,
+    HERMES_AUTO_START_PROFILES, or /data/.hermes/managed-profiles.json.
+    """
+
+    def __init__(self):
+        self.logs: deque[str] = deque(maxlen=800)
+        self.primary = Gateway("default", shared_logs=self.logs)
+        self.extra: dict[str, Gateway] = {}
+        self.restarts = 0
+
+    @property
+    def state(self) -> str:
+        return self.primary.state
+
+    def _desired_profiles(self) -> list[str]:
+        return configured_managed_profiles()
+
+    def _duplicate_channel_reason(self, profile: str, seen_values: dict[str, str]) -> str | None:
+        for key, value in _channel_values(_profile_home(profile)).items():
+            owner = seen_values.get(value)
+            if owner:
+                return f"{key} matches {owner}"
+        return None
+
+    async def _sync_extra_gateways(self):
+        desired = self._desired_profiles()
+        valid: set[str] = set()
+
+        seen_values: dict[str, str] = {}
+        for value in _channel_values(Path(HERMES_HOME)).values():
+            seen_values[value] = "default"
+
+        for name in desired:
+            home = _profile_home(name)
+            if not home.exists():
+                self.logs.append(f"[profiles] skipping {name}: profile directory does not exist ({home})")
+                continue
+            if not _profile_has_channel(home):
+                self.logs.append(f"[profiles] skipping {name}: no messaging channel configured in {home / '.env'}")
+                continue
+            duplicate_reason = self._duplicate_channel_reason(name, seen_values)
+            if duplicate_reason:
+                self.logs.append(f"[profiles] skipping {name}: duplicate channel credential ({duplicate_reason})")
+                continue
+            for value in _channel_values(home).values():
+                seen_values[value] = name
+            valid.add(name)
+            self.extra.setdefault(name, Gateway(name, profile=name, shared_logs=self.logs))
+
+        # Stop gateways removed from config or no longer valid (for example, a
+        # duplicated bot token was accidentally copied into the profile).
+        for name in list(self.extra):
+            if name not in valid:
+                self.logs.append(f"[profiles] stopping unmanaged/invalid profile {name}")
+                await self.extra[name].stop()
+                del self.extra[name]
+
+    async def start(self):
+        if is_config_complete():
+            await self.primary.start()
+        else:
+            print("[server] Config incomplete — default gateway not started. Configure provider + model in the admin UI.", flush=True)
+        await self._sync_extra_gateways()
+        for gateway in self.extra.values():
+            await gateway.start()
+
+    async def stop(self):
+        await asyncio.gather(
+            *(gateway.stop() for gateway in self.extra.values()),
+            self.primary.stop(),
+            return_exceptions=True,
+        )
+
+    async def restart(self):
+        await self.stop()
+        self.restarts += 1
+        await self.start()
+
+    def status(self) -> dict:
+        status = self.primary.status()
+        status["managed_profiles"] = {name: gateway.status() for name, gateway in sorted(self.extra.items())}
+        status["desired_profiles"] = self._desired_profiles()
+        status["fleet_restarts"] = self.restarts
+        return status
+
+
+gw = GatewayFleet()
 cfg_lock = asyncio.Lock()
 
 
@@ -1246,10 +1542,11 @@ async def route_setup_404(request: Request) -> Response:
 
 # ── App lifecycle ─────────────────────────────────────────────────────────────
 async def auto_start():
-    if is_config_complete():
-        asyncio.create_task(gw.start())
-    else:
-        print("[server] Config incomplete — gateway not started. Configure provider + model in the admin UI.", flush=True)
+    # GatewayFleet.start() starts the default gateway only when default config is
+    # complete, but still starts any configured profile gateways. This lets a
+    # Railway deployment supervise specialized profiles even if the default
+    # profile is intentionally unused or still being configured.
+    asyncio.create_task(gw.start())
 
 
 @asynccontextmanager
