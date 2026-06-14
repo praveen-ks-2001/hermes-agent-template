@@ -269,24 +269,30 @@ def write_config_yaml(data: dict[str, str]) -> None:
     else:
         merged.pop("custom_providers", None)
 
-# --- INICIO MODIFICACIÓN MCP ---
-    db_host = data.get("DB_HOST", os.environ.get("DB_HOST", ""))
-    if db_host:
-        merged_mcp = dict(merged.get("mcp_servers") if isinstance(merged.get("mcp_servers"), dict) else {})
-        
-        merged_mcp["mysql_internal"] = {
-            "command": "npx",
-            "args": ["-y", "@nilsir/mcp-server-mysql"],
-            "env": {
-                "MYSQL_HOST": db_host,
-                "MYSQL_PORT": str(data.get("DB_PORT", os.environ.get("DB_PORT", "3306"))),
-                "MYSQL_USER": data.get("DB_USER", os.environ.get("DB_USER", "")),
-                "MYSQL_PASSWORD": data.get("DB_PASSWORD", os.environ.get("DB_PASSWORD", "")),
-                "MYSQL_DATABASE": data.get("DB_NAME", os.environ.get("DB_NAME", ""))
-            }
-        }
-        merged["mcp_servers"] = merged_mcp
-    # --- FIN MODIFICACIÓN MCP ---
+# --- INICIO MCP MULTI-USUARIO POR TELEGRAM ---
+auth_db_host = data.get("AUTH_DB_HOST", os.environ.get("AUTH_DB_HOST", ""))
+
+if auth_db_host:
+    merged_mcp = dict(
+        merged.get("mcp_servers")
+        if isinstance(merged.get("mcp_servers"), dict)
+        else {}
+    )
+
+    merged_mcp["tenant_mysql"] = {
+        "command": "python",
+        "args": ["/app/mcp_tenant_mysql.py"],
+        "env": {
+            "AUTH_DB_HOST": auth_db_host,
+            "AUTH_DB_PORT": str(data.get("AUTH_DB_PORT", os.environ.get("AUTH_DB_PORT", "3306"))),
+            "AUTH_DB_USER": data.get("AUTH_DB_USER", os.environ.get("AUTH_DB_USER", "")),
+            "AUTH_DB_PASSWORD": data.get("AUTH_DB_PASSWORD", os.environ.get("AUTH_DB_PASSWORD", "")),
+            "AUTH_DB_NAME": data.get("AUTH_DB_NAME", os.environ.get("AUTH_DB_NAME", "")),
+        },
+    }
+
+    merged["mcp_servers"] = merged_mcp
+# --- FIN MCP MULTI-USUARIO POR TELEGRAM ---
     with config_path.open("w") as f:
         yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False)
 
