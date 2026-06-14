@@ -184,20 +184,7 @@ def read_env(path: Path) -> dict[str, str]:
 
 
 def write_config_yaml(data: dict[str, str]) -> None:
-    """Write config.yaml — deep-merge template defaults with any existing user/cron-managed sections.
-
-    Previously this overwrote ``$HERMES_HOME/config.yaml`` with a hardcoded template
-    body on every boot, silently erasing user-managed top-level keys. The most
-    common casualty is ``mcp_servers`` — Hermes reads downstream MCP servers
-    *only* from this file (see ``hermes_cli/mcp_config.py:_get_mcp_servers``), so
-    the wipe broke ``hermes mcp add/test/list`` state across every container
-    restart and required hand-restoration after each redeploy.
-
-    The fix: load the existing file if any, apply the deployment-managed keys
-    (``model.default``, ``model.provider``, ``terminal``, ``agent``, ``data_dir``)
-    on top, and write the merged result. Unknown top-level keys (``mcp_servers``,
-    custom skill config, etc.) are preserved verbatim.
-    """
+    """Write config.yaml — deep-merge template defaults with any existing user/cron-managed sections."""
     import yaml  # hermes-agent already pulls pyyaml; deferred import keeps cold start light
 
     model = data.get("LLM_MODEL", "")
@@ -217,47 +204,106 @@ def write_config_yaml(data: dict[str, str]) -> None:
 
     merged = dict(existing)
 
-    # Deployment-managed (always authoritative — these reflect the runtime env).
-    merged_model = dict(merged.get("model") if isinstance(merged.get("model"), dict) else {})
+    # Deployment-managed model config.
+    merged_model = dict(
+        merged.get("model") if isinstance(merged.get("model"), dict) else {}
+    )
     merged_model["default"] = model
-    # Only force provider="auto" when a known API key is configured. If no
-    # API key is set, the user likely configured an OAuth provider (xai-oauth,
-    # qwen-oauth, etc.) via the dashboard's model picker — preserve that value
-    # so a container restart doesn't revert it to "auto" and break their session.
+
+    # Only force provider="auto" when a known API key is configured.
+    # If no API key is set, preserve OAuth/dashboard provider settings.
     if any(data.get(k) for k in PROVIDER_KEYS):
         merged_model["provider"] = "auto"
     merged["model"] = merged_model
 
-    merged_terminal = dict(merged.get("terminal") if isinstance(merged.get("terminal"), dict) else {})
+    # Deployment-managed terminal config.
+    merged_terminal = dict(
+        merged.get("terminal") if isinstance(merged.get("terminal"), dict) else {}
+    )
     merged_terminal["backend"] = "local"
     merged_terminal["timeout"] = 60
     merged_terminal["cwd"] = "/tmp"
     merged["terminal"] = merged_terminal
 
-    merged_agent = dict(merged.get("agent") if isinstance(merged.get("agent"), dict) else {})
+    # Deployment-managed agent config.
+    merged_agent = dict(
+        merged.get("agent") if isinstance(merged.get("agent"), dict) else {}
+    )
     merged_agent.setdefault("max_iterations", 50)
     merged["agent"] = merged_agent
 
     merged["data_dir"] = HERMES_HOME
 
-    # Custom OpenAI-compatible endpoint — write custom_providers block when configured,
-    # remove it when not (safe on Railway where users don't hand-edit config.yaml).
+    # Custom OpenAI-compatible endpoint.
     custom_base_url = data.get("CUSTOM_PROVIDER_BASE_URL", "").strip()
     if custom_base_url:
         raw_name = data.get("CUSTOM_PROVIDER_NAME", "").strip() or custom_base_url
-        # Sanitise to a valid hermes provider name (lowercase alphanumeric + hyphens).
         sanitized_name = re.sub(r"[^a-z0-9-]", "-", raw_name.lower()).strip("-") or "custom"
-        merged["custom_providers"] = [{
-            "name": sanitized_name,
-            "base_url": custom_base_url,
-            "key_env": "CUSTOM_PROVIDER_API_KEY",
-        }]
+        merged["custom_providers"] = [
+            {
+                "name": sanitized_name,
+                "base_url": custom_base_url,
+                "key_env": "CUSTOM_PROVIDER_API_KEY",
+            }
+        ]
     else:
         merged.pop("custom_providers", None)
 
+    # --- INICIO MCP MULTI-USUARIO POR TELEGRAM ---
+    # Este bloque debe estar DENTRO de write_config_yaml.
+    auth_db_host = data.get("AUTH_DB_HOST", os.environ.get("AUTH_DB_HOST", "")).strip()
+
+    merged_mcp = dict(
+        merged.get("mcp_servers") if isinstance(merged.get("mcp_servers"), dict) else {}
+    )
+
+    # Borrar MCPs viejos que conectan directo a MySQL sin autorización.
+    for old_name in ["mysql_internal", "mysql", "mysql_server", "db_mysql"]:
+        merged_mcp.pop(old_name, None)
+
+    # Borrar cualquier MCP basado en @nilsir/mcp-server-mysql.
+    for name in list(merged_mcp.keys()):
+        server = merged_mcp.get(name, {})
+        args = server.get("args", []) if isinstance(server, dict) else []
+        args_text = " ".join(str(x) for x in args)
+
+        if "@nilsir/mcp-server-mysql" in args_text:
+            merged_mcp.pop(name, None)
+
+    if auth_db_host:
+        mcp_env = {
+            "AUTH_DB_HOST": auth_db_host,
+            "AUTH_DB_PORT": str(data.get("AUTH_DB_PORT", os.environ.get("AUTH_DB_PORT", "3306"))),
+            "AUTH_DB_USER": data.get("AUTH_DB_USER", os.environ.get("AUTH_DB_USER", "")),
+            "AUTH_DB_PASSWORD": data.get("AUTH_DB_PASSWORD", os.environ.get("AUTH_DB_PASSWORD", "")),
+            "AUTH_DB_NAME": data.get("AUTH_DB_NAME", os.environ.get("AUTH_DB_NAME", "")),
+            "TEST_TELEGRAM_ID": data.get("TEST_TELEGRAM_ID", os.environ.get("TEST_TELEGRAM_ID", "")),
+        }
+
+        # Pasar también variables tipo CLIENTE_A_DB_PASSWORD, CLIENTE_B_DB_PASSWORD, etc.
+        for key, value in os.environ.items():
+            if key.endswith("_DB_PASSWORD"):
+                mcp_env[key] = value
+
+        merged_mcp["tenant_mysql"] = {
+            "command": "python",
+            "args": ["/app/mcp_tenant_mysql.py"],
+            "env": mcp_env,
+        }
+    else:
+        # Si no hay base central AUTH, no dejamos tenant_mysql configurado a medias.
+        merged_mcp.pop("tenant_mysql", None)
+
+    if merged_mcp:
+        merged["mcp_servers"] = merged_mcp
+    else:
+        merged.pop("mcp_servers", None)
+    # --- FIN MCP MULTI-USUARIO POR TELEGRAM ---
+
+    # IMPORTANTE: este write queda fuera del if auth_db_host.
+    # Así config.yaml se escribe siempre, haya o no haya AUTH_DB_HOST.
     with config_path.open("w") as f:
         yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False)
-
 
 def write_env(path: Path, data: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
