@@ -70,6 +70,8 @@ RUN mkdir -p /data/.hermes
 COPY server.py /app/server.py
 COPY mcp_tenant_mysql.py /app/mcp_tenant_mysql.py
 COPY templates/ /app/templates/
+
+COPY SOUL.md /app/SOUL.md
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
