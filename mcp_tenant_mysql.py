@@ -26,16 +26,11 @@ def get_auth_connection():
     )
 
 
-def resolve_telegram_id_from_token(auth_token: str) -> str | None:
-    """
-    Convierte un token interno en el Telegram ID real.
-    El usuario nunca debe escribir este token.
-    Hermes debe generarlo al recibir el mensaje.
-    """
+def resolve_telegram_id_from_session(tenant_session_id: str) -> str | None:
     sql = """
         SELECT telegram_id
-        FROM ai_request_tokens
-        WHERE token = %s
+        FROM ai_request_sessions
+        WHERE session_id = %s
           AND expires_at > NOW()
         LIMIT 1
     """
@@ -43,7 +38,7 @@ def resolve_telegram_id_from_token(auth_token: str) -> str | None:
     conn = get_auth_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, (auth_token,))
+            cur.execute(sql, (tenant_session_id,))
             row = cur.fetchone()
             if not row:
                 return None
@@ -218,16 +213,14 @@ def listar_mis_bases(auth_token: str) -> dict:
 
 
 @mcp.tool()
-def consultar_mi_base(auth_token: str, sql: str, db_key: str = "") -> dict:
+def consultar_mi_base(tenant_session_id: str, sql: str, db_key: str = "") -> dict:
     """
     Consulta únicamente una base autorizada para el usuario real de Telegram.
-
-    Importante:
-    - No recibe telegram_id.
-    - No acepta IDs escritos por el usuario.
-    - Usa auth_token para resolver el Telegram ID real.
+    No recibe Telegram ID.
+    No recibe auth_token.
+    Usa tenant_session_id interno generado por Hermes.
     """
-    telegram_id = resolve_telegram_id_from_token(auth_token)
+    telegram_id = resolve_telegram_id_from_session(tenant_session_id)
 
     if not telegram_id:
         return {
@@ -275,6 +268,18 @@ def consultar_mi_base(auth_token: str, sql: str, db_key: str = "") -> dict:
             "ok": False,
             "error": str(e),
         }
+
+@mcp.tool()
+def resumen_ejecutivo(tenant_session_id: str, periodo: str = "ayer", db_key: str = "") -> dict:
+    telegram_id = resolve_telegram_id_from_session(tenant_session_id)
+
+    if not telegram_id:
+        return {
+            "ok": False,
+            "error": "No se pudo validar la identidad del usuario.",
+        }
+
+    # resto del código igual
 
 
 if __name__ == "__main__":
