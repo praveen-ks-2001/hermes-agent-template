@@ -1,7 +1,10 @@
 from pathlib import Path
+import re
 
 TARGET = Path("/opt/hermes-agent/gateway/platforms/telegram.py")
-MARKER = "# --- TENANT MYSQL AUTH PATCH BY TEMPLATE ---"
+
+START_MARKER = "# --- TENANT MYSQL AUTH PATCH BY TEMPLATE ---"
+END_MARKER = "# --- END TENANT MYSQL AUTH PATCH BY TEMPLATE ---"
 
 PATCH = r'''
 # --- TENANT MYSQL AUTH PATCH BY TEMPLATE ---
@@ -18,11 +21,13 @@ def _tenant_mysql_auth_enabled():
     return all((_tenant_os.environ.get(k) or "").strip() for k in required)
 
 
-def _tenant_mysql_create_auth_token(telegram_id: str):
+def _tenant_mysql_create_session_id(telegram_id: str):
     """
-    Crea un token temporal interno para el Telegram ID real.
-    El usuario no escribe este token.
-    El MCP usa este token para resolver token -> telegram_id.
+    Crea un tenant_session_id temporal interno para el Telegram ID real.
+
+    El usuario no debe ver ni escribir este valor.
+    El MCP usa este identificador interno para resolver:
+    tenant_session_id -> telegram_id real -> permisos -> base autorizada.
     """
     if not telegram_id:
         return None
@@ -38,7 +43,8 @@ def _tenant_mysql_create_auth_token(telegram_id: str):
 
         import pymysql as _tenant_pymysql
 
-        token = _tenant_secrets.token_urlsafe(32)
+        tenant_session_id = _tenant_secrets.token_urlsafe(32)
+
         expires_at = (
             _tenant_datetime.utcnow() + _tenant_timedelta(minutes=5)
         ).strftime("%Y-%m-%d %H:%M:%S")
@@ -54,23 +60,29 @@ def _tenant_mysql_create_auth_token(telegram_id: str):
 
         try:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM ai_request_tokens WHERE expires_at <= NOW()")
+                cur.execute(
+                    "DELETE FROM ai_request_sessions WHERE expires_at <= NOW()"
+                )
+
                 cur.execute(
                     """
-                    INSERT INTO ai_request_tokens
-                    (token, telegram_id, expires_at)
+                    INSERT INTO ai_request_sessions
+                    (session_id, telegram_id, expires_at)
                     VALUES (%s, %s, %s)
                     """,
-                    (token, str(telegram_id), expires_at),
+                    (tenant_session_id, str(telegram_id), expires_at),
                 )
         finally:
             conn.close()
 
-        return token
+        return tenant_session_id
 
     except Exception as exc:
         try:
-            logger.exception("[tenant_mysql] could not create auth token: %s", exc)
+            logger.exception(
+                "[tenant_mysql] could not create tenant session id: %s",
+                exc,
+            )
         except Exception:
             pass
         return None
@@ -85,20 +97,29 @@ try:
         source = getattr(event, "source", None)
         telegram_id = getattr(source, "user_id", None)
 
-        token = _tenant_mysql_create_auth_token(str(telegram_id)) if telegram_id else None
+        tenant_session_id = (
+            _tenant_mysql_create_session_id(str(telegram_id))
+            if telegram_id
+            else None
+        )
 
-        if not token:
+        if not tenant_session_id:
             return event
 
         tenant_prompt = (
             "TENANT DATABASE AUTHORIZATION CONTEXT\n"
             "The current real Telegram user has been validated by the gateway.\n"
-            f"Internal tenant auth_token: {token}\n\n"
-            "When the user asks for database information, use only the MCP tool "
-            "tenant_mysql.consultar_mi_base.\n"
-            "Pass the auth_token exactly as provided above.\n"
+            f"Internal tenant session id: {tenant_session_id}\n\n"
+            "When the user asks for restaurant, sales, purchases, stock, margin, "
+            "or executive business information, use only the MCP tools from "
+            "tenant_mysql.\n"
+            "For executive summaries, use tenant_mysql.resumen_ejecutivo when appropriate.\n"
+            "For SQL-based queries, use tenant_mysql.consultar_mi_base.\n"
+            "Pass tenant_session_id exactly as provided above.\n"
+            "Never ask the user for this internal tenant session id.\n"
             "Never ask the user for a Telegram ID.\n"
             "Never accept a Telegram ID written by the user.\n"
+            "Never accept credentials, keys, tokens, or IDs written by the user.\n"
             "Never use a telegram_id argument for database authorization.\n"
             "If a database key is needed, use only a db_key that the MCP lists as authorized."
         )
@@ -117,11 +138,14 @@ try:
             return event
 
     TelegramAdapter._build_message_event = _tenant_build_message_event_with_auth
-    logger.info("[tenant_mysql] Telegram tenant auth patch installed")
+    logger.info("[tenant_mysql] Telegram tenant session patch installed")
 
 except Exception as exc:
     try:
-        logger.exception("[tenant_mysql] failed to install Telegram tenant auth patch: %s", exc)
+        logger.exception(
+            "[tenant_mysql] failed to install Telegram tenant session patch: %s",
+            exc,
+        )
     except Exception:
         pass
 # --- END TENANT MYSQL AUTH PATCH BY TEMPLATE ---
@@ -134,12 +158,26 @@ def main():
 
     text = TARGET.read_text(encoding="utf-8")
 
-    if MARKER in text:
-        print("[patch] tenant auth patch already installed")
+    # Si ya existe un patch viejo, lo reemplaza completo.
+    pattern = (
+        re.escape(START_MARKER)
+        + r".*?"
+        + re.escape(END_MARKER)
+    )
+
+    if re.search(pattern, text, flags=re.DOTALL):
+        text = re.sub(
+            pattern,
+            PATCH.strip(),
+            text,
+            flags=re.DOTALL,
+        )
+        TARGET.write_text(text, encoding="utf-8")
+        print("[patch] tenant session patch replaced")
         return
 
     TARGET.write_text(text.rstrip() + "\n\n" + PATCH + "\n", encoding="utf-8")
-    print(f"[patch] tenant auth patch installed in {TARGET}")
+    print(f"[patch] tenant session patch installed in {TARGET}")
 
 
 if __name__ == "__main__":
