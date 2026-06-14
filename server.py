@@ -269,30 +269,39 @@ def write_config_yaml(data: dict[str, str]) -> None:
     else:
         merged.pop("custom_providers", None)
 
-# --- INICIO MCP MULTI-USUARIO POR TELEGRAM ---
-auth_db_host = data.get("AUTH_DB_HOST", os.environ.get("AUTH_DB_HOST", ""))
+ # --- INICIO MCP MULTI-USUARIO POR TELEGRAM ---
+    auth_db_host = data.get("AUTH_DB_HOST", os.environ.get("AUTH_DB_HOST", ""))
 
-if auth_db_host:
-    merged_mcp = dict(
-        merged.get("mcp_servers")
-        if isinstance(merged.get("mcp_servers"), dict)
-        else {}
-    )
+    if auth_db_host:
+        merged_mcp = dict(
+            merged.get("mcp_servers")
+            if isinstance(merged.get("mcp_servers"), dict)
+            else {}
+        )
 
-    merged_mcp["tenant_mysql"] = {
-        "command": "python",
-        "args": ["/app/mcp_tenant_mysql.py"],
-        "env": {
+        mcp_env = {
             "AUTH_DB_HOST": auth_db_host,
             "AUTH_DB_PORT": str(data.get("AUTH_DB_PORT", os.environ.get("AUTH_DB_PORT", "3306"))),
             "AUTH_DB_USER": data.get("AUTH_DB_USER", os.environ.get("AUTH_DB_USER", "")),
             "AUTH_DB_PASSWORD": data.get("AUTH_DB_PASSWORD", os.environ.get("AUTH_DB_PASSWORD", "")),
             "AUTH_DB_NAME": data.get("AUTH_DB_NAME", os.environ.get("AUTH_DB_NAME", "")),
-        },
-    }
+        }
 
-    merged["mcp_servers"] = merged_mcp
-# --- FIN MCP MULTI-USUARIO POR TELEGRAM ---
+        for key, value in os.environ.items():
+            if key.endswith("_DB_PASSWORD"):
+                mcp_env[key] = value
+
+        merged_mcp["tenant_mysql"] = {
+            "command": "python",
+            "args": ["/app/mcp_tenant_mysql.py"],
+            "env": mcp_env,
+        }
+
+        merged["mcp_servers"] = merged_mcp
+    # --- FIN MCP MULTI-USUARIO POR TELEGRAM ---
+
+    with config_path.open("w") as f:
+        yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False)
     with config_path.open("w") as f:
         yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False)
 
