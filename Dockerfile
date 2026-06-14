@@ -62,6 +62,9 @@ RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/h
 COPY requirements.txt /app/requirements.txt
 RUN uv pip install --system --no-cache -r /app/requirements.txt
 
+COPY patch_hermes_tenant_auth.py /app/patch_hermes_tenant_auth.py
+RUN python /app/patch_hermes_tenant_auth.py
+
 RUN mkdir -p /data/.hermes
 
 COPY server.py /app/server.py
