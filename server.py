@@ -268,55 +268,48 @@ def write_config_yaml(data: dict[str, str]) -> None:
         }]
     else:
         merged.pop("custom_providers", None)
+  auth_db_host = data.get("AUTH_DB_HOST", os.environ.get("AUTH_DB_HOST", ""))
 
- # --- INICIO MCP MULTI-USUARIO POR TELEGRAM ---
-    auth_db_host = data.get("AUTH_DB_HOST", os.environ.get("AUTH_DB_HOST", ""))
+  if auth_db_host:
+      merged_mcp = dict(
+          merged.get("mcp_servers")
+          if isinstance(merged.get("mcp_servers"), dict)
+          else {}
+    )
 
-    if auth_db_host:
-        merged_mcp = dict(
-            merged.get("mcp_servers")
-            if isinstance(merged.get("mcp_servers"), dict)
-            else {}
-        )
+    # Eliminar MCPs viejos que conectan directo sin autorización
+    for old_name in ["mysql_internal", "mysql", "mysql_server", "db_mysql"]:
+        merged_mcp.pop(old_name, None)
 
-        # Borrar MCPs viejos que conectan directo a MySQL sin validación
-        for old_name in ["mysql_internal", "mysql", "mysql_server", "db_mysql"]:
-            merged_mcp.pop(old_name, None)
+    for name in list(merged_mcp.keys()):
+        server = merged_mcp.get(name, {})
+        args = server.get("args", []) if isinstance(server, dict) else []
+        args_text = " ".join(str(x) for x in args)
 
-        # Borrar cualquier MCP basado en @nilsir/mcp-server-mysql
-        for name in list(merged_mcp.keys()):
-            server = merged_mcp.get(name, {})
-            args = server.get("args", []) if isinstance(server, dict) else []
-            args_text = " ".join(str(x) for x in args)
+        if "@nilsir/mcp-server-mysql" in args_text:
+            merged_mcp.pop(name, None)
 
-            if "@nilsir/mcp-server-mysql" in args_text:
-                merged_mcp.pop(name, None)
+    mcp_env = {
+        "AUTH_DB_HOST": auth_db_host,
+        "AUTH_DB_PORT": str(data.get("AUTH_DB_PORT", os.environ.get("AUTH_DB_PORT", "3306"))),
+        "AUTH_DB_USER": data.get("AUTH_DB_USER", os.environ.get("AUTH_DB_USER", "")),
+        "AUTH_DB_PASSWORD": data.get("AUTH_DB_PASSWORD", os.environ.get("AUTH_DB_PASSWORD", "")),
+        "AUTH_DB_NAME": data.get("AUTH_DB_NAME", os.environ.get("AUTH_DB_NAME", "")),
+    }
 
-        mcp_env = {
-            "AUTH_DB_HOST": auth_db_host,
-            "AUTH_DB_PORT": str(data.get("AUTH_DB_PORT", os.environ.get("AUTH_DB_PORT", "3306"))),
-            "AUTH_DB_USER": data.get("AUTH_DB_USER", os.environ.get("AUTH_DB_USER", "")),
-            "AUTH_DB_PASSWORD": data.get("AUTH_DB_PASSWORD", os.environ.get("AUTH_DB_PASSWORD", "")),
-            "AUTH_DB_NAME": data.get("AUTH_DB_NAME", os.environ.get("AUTH_DB_NAME", "")),
-        }
+    # Pasar también CLIENTE_A_DB_PASSWORD, CLIENTE_B_DB_PASSWORD, etc.
+    for key, value in os.environ.items():
+        if key.endswith("_DB_PASSWORD"):
+            mcp_env[key] = value
 
-        # Pasar también las variables CLIENTE_A_DB_PASSWORD, CLIENTE_B_DB_PASSWORD, etc.
-        for key, value in os.environ.items():
-            if key.endswith("_DB_PASSWORD"):
-                mcp_env[key] = value
+    merged_mcp["tenant_mysql"] = {
+        "command": "python",
+        "args": ["/app/mcp_tenant_mysql.py"],
+        "env": mcp_env,
+    }
 
-        merged_mcp["tenant_mysql"] = {
-            "command": "python",
-            "args": ["/app/mcp_tenant_mysql.py"],
-            "env": mcp_env,
-        }
+    merged["mcp_servers"] = merged_mcp
 
-        merged["mcp_servers"] = merged_mcp
-    # --- FIN MCP MULTI-USUARIO POR TELEGRAM ---
-    # --- FIN MCP MULTI-USUARIO POR TELEGRAM ---
-
-    with config_path.open("w") as f:
-        yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False)
     with config_path.open("w") as f:
         yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False)
 
