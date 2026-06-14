@@ -279,6 +279,19 @@ def write_config_yaml(data: dict[str, str]) -> None:
             else {}
         )
 
+        # Borrar MCPs viejos que conectan directo a MySQL sin validación
+        for old_name in ["mysql_internal", "mysql", "mysql_server", "db_mysql"]:
+            merged_mcp.pop(old_name, None)
+
+        # Borrar cualquier MCP basado en @nilsir/mcp-server-mysql
+        for name in list(merged_mcp.keys()):
+            server = merged_mcp.get(name, {})
+            args = server.get("args", []) if isinstance(server, dict) else []
+            args_text = " ".join(str(x) for x in args)
+
+            if "@nilsir/mcp-server-mysql" in args_text:
+                merged_mcp.pop(name, None)
+
         mcp_env = {
             "AUTH_DB_HOST": auth_db_host,
             "AUTH_DB_PORT": str(data.get("AUTH_DB_PORT", os.environ.get("AUTH_DB_PORT", "3306"))),
@@ -287,6 +300,7 @@ def write_config_yaml(data: dict[str, str]) -> None:
             "AUTH_DB_NAME": data.get("AUTH_DB_NAME", os.environ.get("AUTH_DB_NAME", "")),
         }
 
+        # Pasar también las variables CLIENTE_A_DB_PASSWORD, CLIENTE_B_DB_PASSWORD, etc.
         for key, value in os.environ.items():
             if key.endswith("_DB_PASSWORD"):
                 mcp_env[key] = value
@@ -298,6 +312,7 @@ def write_config_yaml(data: dict[str, str]) -> None:
         }
 
         merged["mcp_servers"] = merged_mcp
+    # --- FIN MCP MULTI-USUARIO POR TELEGRAM ---
     # --- FIN MCP MULTI-USUARIO POR TELEGRAM ---
 
     with config_path.open("w") as f:
