@@ -8,7 +8,12 @@ mcp = FastMCP("tenant-mysql")
 
 def get_auth_connection():
     """
-    Base central donde guardás qué Telegram ID puede acceder a qué base.
+    Base central de autorización.
+    Aquí viven:
+    - ai_users
+    - ai_databases
+    - ai_user_database_access
+    - ai_request_tokens
     """
     return pymysql.connect(
         host=os.environ["AUTH_DB_HOST"],
@@ -21,12 +26,39 @@ def get_auth_connection():
     )
 
 
-def get_allowed_database(telegram_id: str):
+def resolve_telegram_id_from_token(auth_token: str) -> str | None:
     """
-    Busca la base permitida para este usuario de Telegram.
+    Convierte un token interno en el Telegram ID real.
+    El usuario nunca debe escribir este token.
+    Hermes debe generarlo al recibir el mensaje.
+    """
+    sql = """
+        SELECT telegram_id
+        FROM ai_request_tokens
+        WHERE token = %s
+          AND expires_at > NOW()
+        LIMIT 1
+    """
+
+    conn = get_auth_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (auth_token,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            return str(row["telegram_id"])
+    finally:
+        conn.close()
+
+
+def get_allowed_databases(telegram_id: str):
+    """
+    Devuelve todas las bases permitidas para el Telegram ID real.
     """
     sql = """
         SELECT 
+            d.db_key,
             d.db_host,
             d.db_port,
             d.db_name,
@@ -40,26 +72,64 @@ def get_allowed_database(telegram_id: str):
         WHERE u.telegram_id = %s
           AND u.activo = 1
           AND d.activo = 1
-        LIMIT 1
+          AND a.can_read = 1
+        ORDER BY d.db_key
     """
 
     conn = get_auth_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(sql, (telegram_id,))
-            return cur.fetchone()
+            return cur.fetchall()
     finally:
         conn.close()
 
 
+def get_allowed_database(telegram_id: str, db_key: str | None = None):
+    """
+    Busca una base permitida.
+    Si el usuario tiene una sola base, la usa.
+    Si tiene varias, debe indicar db_key.
+    """
+    databases = get_allowed_databases(telegram_id)
+
+    if not databases:
+        return None
+
+    if db_key:
+        for db in databases:
+            if db["db_key"] == db_key:
+                return db
+        return None
+
+    if len(databases) == 1:
+        return databases[0]
+
+    raise ValueError(
+        "Este usuario tiene acceso a varias bases. Debe indicar db_key."
+    )
+
+
 def validate_sql(sql: str, can_write: bool = False):
-    cleaned = sql.strip().lower()
+    """
+    Valida SQL antes de ejecutarlo.
+    Por defecto solo permite SELECT.
+    """
+    cleaned = sql.strip()
+    lowered = cleaned.lower()
+    padded = f" {lowered} "
+
+    if not lowered:
+        raise ValueError("La consulta SQL está vacía.")
+
+    if ";" in lowered[:-1]:
+        raise ValueError("Solo se permite una consulta por vez.")
 
     if not can_write:
-        if not cleaned.startswith("select"):
+        if not lowered.startswith("select"):
             raise ValueError("Solo se permiten consultas SELECT.")
 
-        blocked = [
+        blocked_words = [
             " insert ",
             " update ",
             " delete ",
@@ -69,20 +139,38 @@ def validate_sql(sql: str, can_write: bool = False):
             " create ",
             " grant ",
             " revoke ",
+            " replace ",
+            " call ",
+            " execute ",
+            " use ",
+            " set ",
         ]
 
-        padded = f" {cleaned} "
-        for word in blocked:
+        for word in blocked_words:
             if word in padded:
                 raise ValueError("Consulta no permitida.")
 
-    if ";" in cleaned[:-1]:
-        raise ValueError("Solo se permite una consulta por vez.")
+    blocked_patterns = [
+        r"\binformation_schema\.",
+        r"\bmysql\.",
+        r"\bperformance_schema\.",
+        r"\bsys\.",
+        r"--",
+        r"/\*",
+        r"\*/",
+    ]
+
+    for pattern in blocked_patterns:
+        if re.search(pattern, lowered):
+            raise ValueError("Consulta no permitida por seguridad.")
 
     return True
 
 
 def get_tenant_connection(db_config):
+    """
+    Conecta únicamente a la base autorizada.
+    """
     password_env = db_config["db_password_env"]
     password = os.environ.get(password_env)
 
@@ -101,34 +189,92 @@ def get_tenant_connection(db_config):
 
 
 @mcp.tool()
-def consultar_mi_base(telegram_id: str, sql: str) -> dict:
+def listar_mis_bases(auth_token: str) -> dict:
     """
-    Consulta únicamente la base de datos autorizada para el Telegram ID indicado.
-    No permite consultar otras bases.
+    Lista solo las bases autorizadas para el usuario real de Telegram.
     """
-    db_config = get_allowed_database(str(telegram_id))
+    telegram_id = resolve_telegram_id_from_token(auth_token)
+
+    if not telegram_id:
+        return {
+            "ok": False,
+            "error": "No se pudo validar la identidad del usuario.",
+        }
+
+    databases = get_allowed_databases(telegram_id)
+
+    return {
+        "ok": True,
+        "telegram_id": telegram_id,
+        "bases": [
+            {
+                "db_key": db["db_key"],
+                "can_read": bool(db["can_read"]),
+                "can_write": bool(db["can_write"]),
+            }
+            for db in databases
+        ],
+    }
+
+
+@mcp.tool()
+def consultar_mi_base(auth_token: str, sql: str, db_key: str = "") -> dict:
+    """
+    Consulta únicamente una base autorizada para el usuario real de Telegram.
+
+    Importante:
+    - No recibe telegram_id.
+    - No acepta IDs escritos por el usuario.
+    - Usa auth_token para resolver el Telegram ID real.
+    """
+    telegram_id = resolve_telegram_id_from_token(auth_token)
+
+    if not telegram_id:
+        return {
+            "ok": False,
+            "error": "No se pudo validar la identidad del usuario.",
+        }
+
+    try:
+        db_config = get_allowed_database(
+            telegram_id=telegram_id,
+            db_key=db_key.strip() or None,
+        )
+    except ValueError as e:
+        return {
+            "ok": False,
+            "error": str(e),
+        }
 
     if not db_config:
         return {
             "ok": False,
-            "error": "Este usuario de Telegram no tiene una base de datos autorizada.",
+            "error": "Este usuario no tiene acceso a la base solicitada.",
         }
 
-    validate_sql(sql, can_write=bool(db_config.get("can_write")))
-
-    conn = get_tenant_connection(db_config)
-
     try:
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            rows = cur.fetchall()
-            return {
-                "ok": True,
-                "rows": rows,
-                "database": db_config["db_name"],
-            }
-    finally:
-        conn.close()
+        validate_sql(sql, can_write=bool(db_config.get("can_write")))
+
+        conn = get_tenant_connection(db_config)
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+
+                return {
+                    "ok": True,
+                    "db_key": db_config["db_key"],
+                    "rows": rows,
+                }
+        finally:
+            conn.close()
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+        }
 
 
 if __name__ == "__main__":
