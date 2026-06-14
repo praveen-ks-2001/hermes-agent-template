@@ -58,6 +58,15 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 HERMES_HOME = os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
+def sync_soul_md() -> None:
+    source = Path("/app/SOUL.md")
+    target = Path(HERMES_HOME) / "SOUL.md"
+
+    if source.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"[server] SOUL.md synced to {target}", flush=True)
+
 ENV_FILE = Path(HERMES_HOME) / ".env"
 PAIRING_DIR = Path(HERMES_HOME) / "pairing"
 PAIRING_TTL = 3600
@@ -132,6 +141,11 @@ ENV_VARS = [
     ("GITHUB_TOKEN",             "GitHub token",             "tool",      True),
     ("VOICE_TOOLS_OPENAI_KEY",   "OpenAI (voice/TTS)",       "tool",      True),
     ("HONCHO_API_KEY",           "Honcho (memory)",          "tool",      True),
+    ("AUTH_DB_HOST",            "Auth DB Host",             "authdb",    False),
+    ("AUTH_DB_PORT",            "Auth DB Port",             "authdb",    False),
+    ("AUTH_DB_USER",            "Auth DB User",             "authdb",    False),
+    ("AUTH_DB_PASSWORD",        "Auth DB Password",         "authdb",    True),
+    ("AUTH_DB_NAME",            "Auth DB Name",             "authdb",    False),
     ("TELEGRAM_BOT_TOKEN",       "Bot Token",                "telegram",  True),
     ("TELEGRAM_ALLOWED_USERS",   "Allowed User IDs",         "telegram",  False),
     ("DISCORD_BOT_TOKEN",        "Bot Token",                "discord",   True),
@@ -277,13 +291,14 @@ def write_config_yaml(data: dict[str, str]) -> None:
             "AUTH_DB_USER": data.get("AUTH_DB_USER", os.environ.get("AUTH_DB_USER", "")),
             "AUTH_DB_PASSWORD": data.get("AUTH_DB_PASSWORD", os.environ.get("AUTH_DB_PASSWORD", "")),
             "AUTH_DB_NAME": data.get("AUTH_DB_NAME", os.environ.get("AUTH_DB_NAME", "")),
-            "TEST_TELEGRAM_ID": data.get("TEST_TELEGRAM_ID", os.environ.get("TEST_TELEGRAM_ID", "")),
         }
 
         # Pasar también variables tipo CLIENTE_A_DB_PASSWORD, CLIENTE_B_DB_PASSWORD, etc.
-        for key, value in os.environ.items():
-            if key.endswith("_DB_PASSWORD"):
-                mcp_env[key] = value
+        # Incluye tanto variables de Railway (os.environ) como las guardadas en /data/.hermes/.env.
+        for env_source in (os.environ, data):
+            for key, value in env_source.items():
+                if key.endswith("_DB_PASSWORD") and value:
+                    mcp_env[key] = value
 
         merged_mcp["tenant_mysql"] = {
             "command": "python",
@@ -308,12 +323,12 @@ def write_config_yaml(data: dict[str, str]) -> None:
 def write_env(path: Path, data: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     cat_order = ["model", "provider", "bedrock", "azure", "custom", "tool",
-                 "telegram", "discord", "slack", "whatsapp",
+                 "authdb", "telegram", "discord", "slack", "whatsapp",
                  "email", "mattermost", "matrix", "gateway", "admin"]
     cat_labels = {
         "model": "Model", "provider": "Providers",
         "bedrock": "AWS Bedrock", "azure": "Azure Foundry",
-        "custom": "Custom Endpoint", "tool": "Tools",
+        "custom": "Custom Endpoint", "tool": "Tools", "authdb": "Auth Database",
         "telegram": "Telegram", "discord": "Discord", "slack": "Slack",
         "whatsapp": "WhatsApp", "email": "Email",
         "mattermost": "Mattermost", "matrix": "Matrix", "gateway": "Gateway",
@@ -811,8 +826,14 @@ class Gateway:
             model = env.get("LLM_MODEL", "")
             provider_key = next((env.get(k, "") for k in PROVIDER_KEYS if env.get(k)), "")
             print(f"[gateway] model={model or '⚠ NOT SET'} | provider_key={'set' if provider_key else '⚠ NOT SET'}", flush=True)
-            # Write config.yaml so hermes picks up the model (env vars alone aren't always enough)
-            write_config_yaml(read_env(ENV_FILE))
+
+            # Sync SOUL.md before every gateway start/restart.
+            sync_soul_md()
+
+            # Write config.yaml so hermes picks up the model and MCP config.
+            # Use the merged runtime env, not only /data/.hermes/.env.
+            write_config_yaml(env)
+
             self.proc = await asyncio.create_subprocess_exec(
                 "hermes", "gateway",
                 stdout=asyncio.subprocess.PIPE,
@@ -1292,6 +1313,8 @@ async def route_setup_404(request: Request) -> Response:
 
 # ── App lifecycle ─────────────────────────────────────────────────────────────
 async def auto_start():
+    sync_soul_md()
+
     if is_config_complete():
         asyncio.create_task(gw.start())
     else:
