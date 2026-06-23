@@ -48,4 +48,5 @@ fi
 # container), so removing the file unconditionally is safe.
 rm -f /data/.hermes/gateway.pid
 
-exec hermes gateway run
+hermes gateway run &
+exec python /app/server.py
