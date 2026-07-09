@@ -57,4 +57,10 @@ fi
 # container), so removing the file unconditionally is safe.
 rm -f /data/.hermes/gateway.pid
 
+# Start the loopback Hermes WebUI sidecar when available. The public admin
+# server exposes it under /webui before the dashboard catch-all.
+if [ -x /data/hermes-webui/webui-nesquena-ctl.sh ]; then
+  /data/hermes-webui/webui-nesquena-ctl.sh start || true
+fi
+
 exec python /app/server.py
