@@ -417,6 +417,31 @@
   .stat-value.red    { color: var(--red); }
   .stat-value.yellow { color: var(--yellow); }
 
+  /* ── Runtime preflight warning ───────────────────── */
+  .port-alert {
+    background: rgba(248,81,73,0.08);
+    border: 1px solid rgba(248,81,73,0.45);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .port-alert-title {
+    color: var(--red);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .port-alert-item + .port-alert-item { margin-top: 8px; }
+  .port-alert code {
+    color: var(--yellow);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .port-alert-note { color: var(--text-dim); margin-top: 8px; }
+
   /* ── Action row ───────────────────────────────────── */
   .action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
 
@@ -930,6 +955,30 @@
         <div class="panel-subtitle">Configure your Hermes Agent</div>
       </div>
       <div class="panel-body">
+
+        <template x-if="status.port_preflight && !status.port_preflight.ok">
+          <div class="port-alert" role="alert">
+            <div class="port-alert-title">⚠ Port configuration conflict</div>
+            <template x-for="(conflict, index) in status.port_preflight.conflicts" :key="index">
+              <div class="port-alert-item">
+                <div x-text="conflict.message"></div>
+                <code x-text="conflict.remediation"></code>
+              </div>
+            </template>
+            <div class="port-alert-note">
+              Current ports:
+              <code x-text="'PORT=' + status.port_preflight.ports.web"></code>,
+              <code x-text="'HERMES_DASHBOARD_PORT=' + status.port_preflight.ports.dashboard"></code>,
+              <code x-text="'API_SERVER_PORT=' + status.port_preflight.ports.api_server"></code>.
+              <span x-show="status.port_preflight.api_server_action === 'disable_for_gateway_start'">
+                The conflicting API adapter will be disabled on the next gateway start; messaging channels remain active.
+              </span>
+              <span x-show="status.port_preflight.api_server_action === 'block_gateway_start'">
+                The API server is explicitly enabled in persisted config.yaml, so gateway start is blocked until you fix that configuration.
+              </span>
+            </div>
+          </div>
+        </template>
 
         <div style="background:rgba(98,114,255,0.06);border:1px solid rgba(98,114,255,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--text-dim);">
           New to Hermes? Head over to the <a href="#" @click.prevent="page='guide'" style="color:var(--accent2);text-decoration:none;font-weight:500;">How to Setup</a> section for a step-by-step guide on getting started.

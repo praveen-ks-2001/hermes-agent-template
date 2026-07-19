@@ -45,7 +45,8 @@ Hermes Agent interacts entirely through messaging channels — there is no chat 
 1. Click the **Deploy on Railway** button above
 2. Set the `ADMIN_PASSWORD` environment variable (or a random one will be generated and printed to deploy logs)
 3. Attach a **volume** mounted at `/data` (persists config across redeploys)
-4. Open your app URL — log in with username `admin` and your password
+4. Keep the Railway public `PORT` on `8080`; do not reuse the internal dashboard/API ports
+5. Open your app URL — log in with username `admin` and your password
 
 ### 4. Configure in the Admin Dashboard
 
@@ -64,12 +65,39 @@ Message your Telegram bot. If you're a new user, a pairing request will appear i
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `8080` | Web server port (set automatically by Railway) |
+| `PORT` | `8080` | Public Starlette web server port. Railway routes traffic here. Do not set it to `9119` or `8642`. |
+| `HERMES_DASHBOARD_PORT` | `9119` | Internal Hermes dashboard port, proxied through the public web server. |
+| `API_SERVER_ENABLED` | `false` | Enables Hermes' optional OpenAI-compatible API server. |
+| `API_SERVER_PORT` | `8642` | Internal Hermes API server port when enabled. Must differ from `PORT` and `HERMES_DASHBOARD_PORT`. |
+| `API_SERVER_KEY` | *(unset)* | Optional bearer key for the API server. A non-empty value also enables the API server. |
 | `ADMIN_USERNAME` | `admin` | Basic auth username |
 | `ADMIN_PASSWORD` | *(auto-generated)* | Basic auth password — if unset, a random password is printed to logs |
 | `HERMES_REF` | *(pinned in Dockerfile)* | Hermes Agent version to install (any upstream git tag/branch). Set this to override the Dockerfile default without editing code — see [Updating Hermes](#updating-hermes). |
 
 All other configuration (LLM provider, model, channels, tools) is managed through the admin dashboard.
+
+### Port ownership and preflight
+
+All active listeners share one Railway container and must use distinct ports. The API port is reserved only when the optional API server is enabled (explicitly or by setting `API_SERVER_KEY`):
+
+| Listener | Recommended port | Exposure |
+|----------|------------------|----------|
+| Template web server (`PORT`) | `8080` | Public, through Railway |
+| Native Hermes dashboard (`HERMES_DASHBOARD_PORT`) | `9119` | Loopback only, reverse-proxied by the template |
+| Optional Hermes API server (`API_SERVER_PORT`) | `8642` | Internal unless you deliberately expose it |
+
+The template checks both the effective environment and persisted `config.yaml` before starting the gateway. It does **not** silently choose a new port. For an environment-enabled API server, it disables only the API adapter for that gateway start, keeps messaging channels running, and shows an actionable warning at the top of **Setup**. If `config.yaml` explicitly enables the conflicting API listener, the template blocks gateway start rather than mutating persistent configuration or entering a reconnect loop. Fix the conflicting port, then restart or redeploy.
+
+#### Troubleshooting: repeated `Reconnect api_server failed`
+
+If Railway logs repeatedly report `Reconnect api_server failed` or `address already in use`:
+
+1. Open **Railway → Service → Variables**.
+2. Set `PORT=8080`.
+3. Keep `HERMES_DASHBOARD_PORT=9119` and `API_SERVER_PORT=8642`, or choose other unused, distinct internal ports.
+4. Redeploy the service, then confirm the warning has disappeared from **Setup**.
+
+If API settings were previously saved into `/data/.hermes/.env`, update that persisted Hermes configuration as well: it takes precedence over Railway variables for child processes, so a stored `API_SERVER_PORT` can still create a collision.
 
 ## Supported Providers
 
@@ -87,11 +115,14 @@ Parallel (search), Firecrawl (scraping), Tavily (search), FAL (image gen), Brows
 
 ```
 Railway Container
-├── Python Admin Server (Starlette + Uvicorn)
-│   ├── /            — Admin dashboard (Basic Auth)
-│   ├── /health      — Health check (no auth)
-│   └── /api/*       — Config, status, logs, gateway, pairing
-└── hermes gateway   — Managed as async subprocess
+├── Python Admin Server (Starlette + Uvicorn) — 0.0.0.0:$PORT (public)
+│   ├── /setup       — Template setup/admin UI (cookie auth)
+│   ├── /setup/api/* — Config, status, logs, gateway, pairing
+│   ├── /health      — Railway health check (no auth)
+│   └── /*           — Reverse proxy to the native dashboard
+├── Native Hermes Dashboard — 127.0.0.1:9119 (internal)
+└── hermes gateway — managed as async subprocess
+    └── Optional API Server — 127.0.0.1:8642 (internal by default)
 ```
 
 The admin server runs on `$PORT` and manages the Hermes gateway as a child process. Config is stored in `/data/.hermes/.env` and `/data/.hermes/config.yaml`. Gateway stdout/stderr is captured into a ring buffer and streamed to the Logs panel.

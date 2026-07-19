@@ -38,6 +38,7 @@ import signal
 import tempfile
 import time
 import zipfile
+from collections.abc import Mapping
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -455,6 +456,202 @@ def build_hermes_env() -> dict[str, str]:
     env = {**os.environ, "HERMES_HOME": HERMES_HOME}
     env.update(read_env(ENV_FILE))
     return env
+
+
+def _env_flag_enabled(value: str | None) -> bool:
+    """Match the truthy spellings accepted by pinned Hermes v2026.7.1."""
+    return str(value or "").strip().lower() in {"1", "true", "yes"}
+
+
+def _coerce_port(value: str | None, default: int) -> int:
+    """Mirror Hermes' malformed-port fallback for the optional API adapter."""
+    try:
+        return int(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _config_flag_enabled(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return _env_flag_enabled(str(value))
+
+
+def _read_hermes_config() -> dict:
+    """Read config.yaml for listener settings that env overrides cannot disable."""
+    config_path = Path(HERMES_HOME) / "config.yaml"
+    if not config_path.exists():
+        return {}
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    try:
+        loaded = yaml.safe_load(config_path.read_text())
+        return loaded if isinstance(loaded, dict) else {}
+    except (OSError, UnicodeError, yaml.YAMLError):
+        # Gateway config loading is fail-open too; a malformed/unreadable YAML
+        # file is diagnosed by Hermes itself rather than breaking the Setup UI.
+        return {}
+
+
+def _yaml_api_server_settings(config: Mapping[str, object]) -> tuple[bool, int]:
+    """Mirror the pinned gateway's YAML merge order for the API listener."""
+    merged: dict = {}
+    merged_extra: dict = {}
+
+    gateway = config.get("gateway")
+    gateway_platforms = gateway.get("platforms") if isinstance(gateway, Mapping) else None
+    platforms = config.get("platforms")
+    for source in (gateway_platforms, platforms):
+        block = source.get("api_server") if isinstance(source, Mapping) else None
+        if not isinstance(block, Mapping):
+            continue
+        extra = block.get("extra")
+        if isinstance(extra, Mapping):
+            merged_extra.update(extra)
+        merged.update(block)
+
+    # A top-level api_server.enabled is bridged after the nested platform maps
+    # and therefore wins for enablement in Hermes v2026.7.1.
+    top_level = config.get("api_server")
+    if isinstance(top_level, Mapping) and "enabled" in top_level:
+        merged["enabled"] = top_level["enabled"]
+
+    return (
+        _config_flag_enabled(merged.get("enabled", False)),
+        _coerce_port(merged_extra.get("port"), 8642),
+    )
+
+
+def evaluate_port_preflight(
+    *,
+    process_env: Mapping[str, str] | None = None,
+    hermes_env: Mapping[str, str] | None = None,
+    hermes_config: Mapping[str, object] | None = None,
+) -> dict:
+    """Return a secret-free view of ports that must be unique in this container.
+
+    ``PORT`` belongs to the public Starlette server, while the dashboard and
+    optional Hermes API adapter are internal listeners. The API adapter's env
+    must come from ``build_hermes_env()`` because values saved in the Setup UI's
+    persistent .env intentionally override Railway service variables.
+    """
+    process_env = os.environ if process_env is None else process_env
+    hermes_env = build_hermes_env() if hermes_env is None else hermes_env
+    hermes_config = _read_hermes_config() if hermes_config is None else hermes_config
+
+    config_api_enabled, config_api_port = _yaml_api_server_settings(hermes_config)
+    api_server_env_enabled = (
+        _env_flag_enabled(hermes_env.get("API_SERVER_ENABLED"))
+        or bool(str(hermes_env.get("API_SERVER_KEY", "")).strip())
+    )
+    api_port = config_api_port
+    raw_env_api_port = hermes_env.get("API_SERVER_PORT")
+    if api_server_env_enabled and raw_env_api_port:
+        # A valid env port overrides YAML. A malformed value is ignored by the
+        # gateway loader, leaving the YAML/default port in effect. Hermes only
+        # enters this override branch when the env itself activates the API.
+        try:
+            api_port = int(raw_env_api_port)
+        except (TypeError, ValueError):
+            pass
+
+    ports = {
+        "web": int(process_env.get("PORT", "8080")),
+        "dashboard": int(process_env.get("HERMES_DASHBOARD_PORT", "9119")),
+        "api_server": api_port,
+    }
+    # Upstream enables this adapter when either the explicit flag OR an API key
+    # is present. Keep the preflight's activation rule identical so a keyed API
+    # server cannot bypass collision detection.
+    api_server_enabled = config_api_enabled or api_server_env_enabled
+    conflicts: list[dict] = []
+
+    if ports["web"] == ports["dashboard"]:
+        conflicts.append({
+            "services": ["web", "dashboard"],
+            "port": ports["web"],
+            "message": (
+                f"The public web server and Hermes dashboard both use port {ports['web']}."
+            ),
+            "remediation": (
+                "Set Railway PORT=8080 and HERMES_DASHBOARD_PORT=9119, then redeploy."
+            ),
+        })
+
+    if api_server_enabled:
+        if ports["web"] == ports["api_server"]:
+            conflicts.append({
+                "services": ["web", "api_server"],
+                "port": ports["web"],
+                "message": (
+                    f"The public web server and Hermes API Server both use port {ports['web']}."
+                ),
+                "remediation": (
+                    "Set Railway PORT=8080 (recommended), or set API_SERVER_PORT to an "
+                    "unused internal port, then redeploy."
+                ),
+            })
+        if ports["dashboard"] == ports["api_server"]:
+            conflicts.append({
+                "services": ["dashboard", "api_server"],
+                "port": ports["dashboard"],
+                "message": (
+                    f"The Hermes dashboard and Hermes API Server both use port "
+                    f"{ports['dashboard']}."
+                ),
+                "remediation": (
+                    "Set HERMES_DASHBOARD_PORT=9119 and API_SERVER_PORT=8642, "
+                    "then redeploy."
+                ),
+            })
+
+    api_server_conflicts = any(
+        "api_server" in conflict["services"] for conflict in conflicts
+    )
+    api_server_action = None
+    if api_server_conflicts:
+        api_server_action = (
+            "block_gateway_start"
+            if config_api_enabled
+            else "disable_for_gateway_start"
+        )
+    return {
+        "ok": not conflicts,
+        "ports": ports,
+        "api_server_enabled": api_server_enabled,
+        "api_server_config_enabled": config_api_enabled,
+        "api_server_action": api_server_action,
+        "conflicts": conflicts,
+    }
+
+
+def prepare_gateway_env(
+    *,
+    process_env: Mapping[str, str] | None = None,
+    hermes_env: Mapping[str, str] | None = None,
+    hermes_config: Mapping[str, object] | None = None,
+) -> tuple[dict[str, str], dict]:
+    """Prepare a gateway env without persisting an automatic port remap.
+
+    For env-enabled API conflicts, disable only that adapter for this subprocess
+    run so messaging can still start. A config.yaml-enabled conflict is marked
+    as non-suppressible for Gateway.start() to block without mutating persisted
+    configuration. Setup keeps showing the actionable conflict either way.
+    """
+    gateway_env = dict(build_hermes_env() if hermes_env is None else hermes_env)
+    status = evaluate_port_preflight(
+        process_env=process_env,
+        hermes_env=gateway_env,
+        hermes_config=hermes_config,
+    )
+    if status["api_server_action"] == "disable_for_gateway_start":
+        gateway_env["API_SERVER_ENABLED"] = "false"
+        # Hermes also treats a non-empty key as implicit enablement, so the
+        # transient subprocess env must hide both activation paths.
+        gateway_env["API_SERVER_KEY"] = ""
+    return gateway_env, status
 
 
 def write_env(path: Path, data: dict[str, str]) -> None:
@@ -981,7 +1178,35 @@ class Gateway:
         self.state = "starting"
         self._stopping = False
         try:
-            env = build_hermes_env()
+            env, port_preflight = prepare_gateway_env()
+            if port_preflight["api_server_action"] == "block_gateway_start":
+                self.state = "error"
+                warning = (
+                    "[port preflight] Gateway start blocked: config.yaml explicitly "
+                    "enables the Hermes API Server on a conflicting port. Fix Railway "
+                    "PORT or platforms.api_server.extra.port in the persisted Hermes "
+                    "config, then restart."
+                )
+                self.logs.append(warning)
+                print(f"[gateway] {warning}", flush=True)
+                return
+            if port_preflight["api_server_action"] == "disable_for_gateway_start":
+                conflict_ports = ", ".join(
+                    str(port)
+                    for port in sorted({
+                        conflict["port"]
+                        for conflict in port_preflight["conflicts"]
+                        if "api_server" in conflict["services"]
+                    })
+                )
+                warning = (
+                    "[port preflight] Hermes API Server disabled for this gateway run "
+                    f"because its port conflicts on {conflict_ports}. Messaging adapters "
+                    "will continue. Fix Railway PORT or the persisted Hermes "
+                    "API_SERVER_PORT, then restart."
+                )
+                self.logs.append(warning)
+                print(f"[gateway] {warning}", flush=True)
             model = env.get("LLM_MODEL", "")
             provider_key = next((env.get(k, "") for k in PROVIDER_KEYS if env.get(k)), "")
             print(f"[gateway] model={model or '⚠ NOT SET'} | provider_key={'set' if provider_key else '⚠ NOT SET'}", flush=True)
@@ -1121,7 +1346,7 @@ class Dashboard:
     """Manages the `hermes dashboard` subprocess (native Hermes web UI).
 
     Bound to loopback only — we expose it to the public internet through our
-    reverse proxy on $PORT, where edge basic auth guards every request.
+    reverse proxy on $PORT, where the template's cookie auth guards every request.
     The dashboard is independent of the gateway: it reads config files
     directly and tolerates a stopped gateway.
 
@@ -1147,6 +1372,21 @@ class Dashboard:
 
     async def start(self):
         if self.proc and self.proc.returncode is None:
+            return
+        port_preflight = evaluate_port_preflight()
+        dashboard_conflict = next((
+            conflict
+            for conflict in port_preflight["conflicts"]
+            if set(conflict["services"]) == {"web", "dashboard"}
+        ), None)
+        if dashboard_conflict:
+            warning = (
+                "Port preflight skipped the Hermes dashboard because it conflicts "
+                f"with the public web server on port {dashboard_conflict['port']}. "
+                "Setup remains available; fix the Railway variables and redeploy."
+            )
+            self.logs.append(warning)
+            print(f"[dashboard] {warning}", flush=True)
             return
         try:
             self.proc = await asyncio.create_subprocess_exec(
@@ -1424,7 +1664,12 @@ async def api_status(request: Request):
         name: {"configured": bool(v := data.get(key,"")) and v.lower() not in ("false","0","no")}
         for name, key in CHANNEL_MAP.items()
     }
-    return JSONResponse({"gateway": gw.status(), "providers": providers, "channels": channels})
+    return JSONResponse({
+        "gateway": gw.status(),
+        "providers": providers,
+        "channels": channels,
+        "port_preflight": evaluate_port_preflight(),
+    })
 
 
 async def api_logs(request: Request):
@@ -1930,6 +2175,13 @@ async def auto_start():
 @asynccontextmanager
 async def lifespan(app):
     _sweep_stale_backup_tmpdirs()
+    port_preflight = evaluate_port_preflight()
+    for conflict in port_preflight["conflicts"]:
+        print(
+            f"[server] Port preflight: {conflict['message']} "
+            f"{conflict['remediation']}",
+            flush=True,
+        )
     # Dashboard runs always — it's the user-facing UI after setup is done,
     # and it's independent of gateway state.
     asyncio.create_task(dash.start())
