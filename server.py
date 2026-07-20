@@ -1144,10 +1144,16 @@ class Dashboard:
         self.proc: asyncio.subprocess.Process | None = None
         self.logs: deque[str] = deque(maxlen=300)
         self._drain_task: asyncio.Task | None = None
+        self._stopping = False
+        self._recent_exits: list[float] = []
+        self.restarts = 0
 
-    async def start(self):
+    async def start(self, *, reset_budget: bool = True):
         if self.proc and self.proc.returncode is None:
             return
+        if reset_budget:
+            self._recent_exits.clear()
+        self._stopping = False
         try:
             self.proc = await asyncio.create_subprocess_exec(
                 "hermes", "dashboard",
@@ -1171,28 +1177,60 @@ class Dashboard:
                 env=build_hermes_env(),
             )
             print(f"[dashboard] spawned pid={self.proc.pid} → {HERMES_DASHBOARD_URL}", flush=True)
-            self._drain_task = asyncio.create_task(self._drain())
+            self._drain_task = asyncio.create_task(self._drain(self.proc))
         except Exception as e:
             print(f"[dashboard] FAILED to spawn: {e!r}", flush=True)
+            asyncio.create_task(self._supervise_respawn())
 
-    async def _drain(self):
+    async def _drain(self, proc: asyncio.subprocess.Process):
         """Stream subprocess output to Railway logs (prefixed) and a ring buffer."""
-        assert self.proc and self.proc.stdout
+        assert proc.stdout
         try:
-            async for raw in self.proc.stdout:
+            async for raw in proc.stdout:
                 line = ANSI_ESCAPE.sub("", raw.decode(errors="replace").rstrip())
                 self.logs.append(line)
                 print(f"[dashboard] {line}", flush=True)
         except Exception as e:
             print(f"[dashboard] drain error: {e!r}", flush=True)
         finally:
-            rc = self.proc.returncode if self.proc else None
-            if rc is not None and rc != 0:
-                print(f"[dashboard] EXITED with code {rc} — reverse proxy will return 503 until restart", flush=True)
-            elif rc == 0:
-                print(f"[dashboard] exited cleanly (code 0)", flush=True)
+            rc = proc.returncode
+            if proc is not self.proc:
+                return
+            if self._stopping:
+                if rc == 0:
+                    print(f"[dashboard] exited cleanly (code 0)", flush=True)
+                return
+            msg = f"[dashboard] EXITED with code {rc} — supervising restart"
+            self.logs.append(msg)
+            print(msg, flush=True)
+            asyncio.create_task(self._supervise_respawn())
+
+    async def _supervise_respawn(self):
+        now = time.monotonic()
+        self._recent_exits = [t for t in self._recent_exits if now - t < RESPAWN_WINDOW_S]
+        self._recent_exits.append(now)
+        if len(self._recent_exits) > RESPAWN_MAX_IN_WIN:
+            msg = (
+                f"[dashboard] crash-looping ({len(self._recent_exits)} exits in "
+                f"{RESPAWN_WINDOW_S}s) — giving up auto-restart"
+            )
+            self.logs.append(msg)
+            print(msg, flush=True)
+            return
+        delay = min(RESPAWN_BASE_DELAY * 2 ** (len(self._recent_exits) - 1), RESPAWN_MAX_DELAY)
+        msg = f"[dashboard] restarting in {int(delay)}s (attempt {len(self._recent_exits)})"
+        self.logs.append(msg)
+        print(msg, flush=True)
+        await asyncio.sleep(delay)
+        if self._stopping:
+            return
+        if self.proc and self.proc.returncode is None:
+            return
+        self.restarts += 1
+        await self.start(reset_budget=False)
 
     async def stop(self):
+        self._stopping = True
         if not self.proc or self.proc.returncode is not None:
             return
         self.proc.terminate()
