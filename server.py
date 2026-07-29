@@ -208,6 +208,14 @@ ENV_VARS = [
     ("GLM_API_KEY",              "GLM / Z.AI",               "provider",  True),
     ("KIMI_API_KEY",             "Kimi",                     "provider",  True),
     ("MINIMAX_API_KEY",          "MiniMax",                  "provider",  True),
+    # Opt-in region override for MiniMax. Empty (default) keeps hermes' built-in
+    # "minimax" provider, which routes to the global OpenAI-compatible endpoint.
+    # Setting "cn" pins provider="custom" with the CN Anthropic-compatible base
+    # URL (see MINIMAX_CN_BASE_URL) + the MINIMAX_API_KEY, reusing the same
+    # custom-style trust path as Fireworks/Novita. Not an API key, so it lives
+    # in its own "minimax" category — never counted toward PROVIDER_KEYS, so it
+    # can't alone satisfy is_config_complete the way a real key would.
+    ("MINIMAX_REGION",           "MiniMax region",           "minimax",   False),
     ("HF_TOKEN",                 "Hugging Face",             "provider",  True),
     # Added in v2026.4.23+ (hermes v0.11.0+). All plain API-key auth — hermes
     # auto-routes by env-var presence, no extra config needed on our side.
@@ -336,6 +344,20 @@ CUSTOM_STYLE_BASE_URLS = {
     "NOVITA_API_KEY":    "https://api.novita.ai/openai/v1",
 }
 
+# MiniMax CN (region cn_zh) Anthropic-compatible endpoint. The default — empty
+# MINIMAX_REGION — uses hermes' built-in "minimax" provider id, which routes to
+# the global endpoint. Opting into the CN region (MINIMAX_REGION=cn) switches
+# MiniMax to provider="custom" with this base_url + the MINIMAX_API_KEY, the
+# same custom-style trust path hermes' own runtime resolver (runtime_provider.py)
+# uses for any user-supplied Anthropic-compatible endpoint. Source: MiniMax
+# regional endpoints (global_en anthropic_base_url is api.minimax.io/anthropic,
+# cn_zh anthropic_base_url is api.minimaxi.com/anthropic). Re-verify against
+# MiniMax's own docs if the CN endpoint surface ever changes.
+MINIMAX_CN_BASE_URL = "https://api.minimaxi.com/anthropic"
+# Region values accepted in MINIMAX_REGION. "" / "global" = built-in minimax
+# (unchanged global route); "cn" = CN Anthropic-compatible route above.
+MINIMAX_REGION_CN = "cn"
+
 # Every ENV_VARS "provider" key pinned to the literal "custom" id above.
 # Computed, not hand-maintained, so a future provider added to
 # HERMES_PROVIDER_IDS with value "custom" is automatically covered by both
@@ -442,7 +464,31 @@ def write_config_yaml(data: dict[str, str], *, reset_model: bool = False) -> Non
                 None,
             )
             custom_style_key = next((k for k in HERMES_CUSTOM_STYLE_KEYS if data.get(k)), None)
-            if named_key:
+            # MiniMax CN region override (MINIMAX_REGION=cn): only when MiniMax
+            # is the SOLE configured provider key AND the CN region is
+            # explicitly selected. Hermes' built-in "minimax" provider id only
+            # routes the global endpoint, so the CN Anthropic-compatible route
+            # needs provider="custom" + MINIMAX_CN_BASE_URL — the same custom-
+            # style trust path as Fireworks/Novita. With any second provider
+            # key present the active provider is ambiguous from .env alone, so
+            # we fall through to "auto" + the explicit pin
+            # (set_active_model_via_hermes, which applies the same CN override
+            # when MiniMax is the saved active provider) — forcing "custom"
+            # here would misroute a non-MiniMax active model through the CN
+            # endpoint, the exact class of bug the multi-provider handling
+            # above exists to prevent.
+            minimax_cn_sole = (
+                named_key == "MINIMAX_API_KEY"
+                and not custom_style_key
+                and str(data.get("MINIMAX_REGION", "")).strip().lower() == MINIMAX_REGION_CN
+                and not any(data.get(k) for k in PROVIDER_KEYS if k != "MINIMAX_API_KEY")
+            )
+            if minimax_cn_sole:
+                merged_model["provider"] = "custom"
+                merged_model["base_url"] = MINIMAX_CN_BASE_URL
+                merged_model["api_key"] = data.get("MINIMAX_API_KEY", "").strip()
+                current_provider = "custom"
+            elif named_key:
                 merged_model["provider"] = "auto"
                 current_provider = "auto"
             elif custom_style_key:
@@ -557,13 +603,14 @@ def build_hermes_env() -> dict[str, str]:
 
 def write_env(path: Path, data: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    cat_order = ["model", "provider", "bedrock", "azure", "custom", "tool",
+    cat_order = ["model", "provider", "bedrock", "azure", "custom", "minimax", "tool",
                  "telegram", "discord", "slack", "whatsapp",
                  "email", "mattermost", "matrix", "gateway", "admin"]
     cat_labels = {
         "model": "Model", "provider": "Providers",
         "bedrock": "AWS Bedrock", "azure": "Azure Foundry",
-        "custom": "Custom Endpoint", "tool": "Tools",
+        "custom": "Custom Endpoint", "minimax": "MiniMax",
+        "tool": "Tools",
         "telegram": "Telegram", "discord": "Discord", "slack": "Slack",
         "whatsapp": "WhatsApp", "email": "Email",
         "mattermost": "Mattermost", "matrix": "Matrix", "gateway": "Gateway",
@@ -1499,6 +1546,19 @@ async def api_config_put(request: Request):
                     or merged.get("CUSTOM_PROVIDER_BASE_URL", "").strip()
                 )
                 pin_api_key = merged.get(active_provider_key, "").strip()
+            # MiniMax CN region override: when MiniMax is the provider being
+            # saved AND MINIMAX_REGION=cn, pin provider="custom" with the CN
+            # Anthropic-compatible base_url (MINIMAX_CN_BASE_URL) instead of
+            # the built-in "minimax" id, which only routes the global endpoint.
+            # active_provider_key positively identifies MiniMax as the saved
+            # provider, so this is safe alongside other configured providers
+            # (the pin targets the main model slot only). Mirrors the
+            # write_config_yaml() sole-provider safety net.
+            if (active_provider_key == "MINIMAX_API_KEY"
+                    and str(merged.get("MINIMAX_REGION", "")).strip().lower() == MINIMAX_REGION_CN):
+                hermes_provider_id = "custom"
+                pin_base_url = MINIMAX_CN_BASE_URL
+                pin_api_key = merged.get("MINIMAX_API_KEY", "").strip()
             model_warning = await set_active_model_via_hermes(
                 hermes_provider_id, model_value, base_url=pin_base_url, api_key=pin_api_key
             )

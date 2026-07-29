@@ -1123,6 +1123,18 @@
             </div>
           </template>
 
+          <!-- MiniMax region selector (after API Key) -->
+          <template x-if="selectedProvider === 'MiniMax'">
+            <div class="field-gap">
+              <label class="field-label">Region</label>
+              <select :value="vars.MINIMAX_REGION||''" @change="vars.MINIMAX_REGION=$event.target.value">
+                <option value="">Global (default)</option>
+                <option value="cn">China (Anthropic-compatible)</option>
+              </select>
+              <p class="hint">Global uses MiniMax's built-in endpoint. China routes through the CN Anthropic-compatible endpoint (<code>api.minimaxi.com/anthropic</code>) — use it when your key is issued on the CN platform.</p>
+            </div>
+          </template>
+
           <div class="field-gap" x-show="selectedProvider">
             <label class="field-label">LLM Model</label>
             <input type="text" :value="vars.LLM_MODEL||''" @input="vars.LLM_MODEL=$event.target.value"
@@ -1130,13 +1142,15 @@
                      : selectedProvider === 'Anthropic (Claude)' ? 'e.g. claude-sonnet-4-20250514'
                      : selectedProvider === 'AWS Bedrock' ? 'e.g. anthropic.claude-3-5-sonnet-20241022-v2:0'
                      : selectedProvider === 'Fireworks AI' ? 'e.g. accounts/fireworks/models/llama-v3p1-70b-instruct'
+                     : selectedProvider === 'MiniMax' ? 'e.g. MiniMax-M3'
                      : selectedProvider === 'Custom Endpoint' || selectedProvider === 'Azure Foundry' ? 'model-id as required by the endpoint'
                      : 'e.g. openai/gpt-4o-mini  or  deepseek/deepseek-chat'">
             <p class="hint" x-show="selectedProvider === 'xAI Grok (SuperGrok)' || selectedProvider === 'xAI'">e.g. <code>grok-4.3</code>, <code>grok-4.20-0309-reasoning</code></p>
             <p class="hint" x-show="selectedProvider === 'Anthropic (Claude)'">e.g. <code>claude-sonnet-4-20250514</code>, <code>claude-opus-4-20250115</code></p>
             <p class="hint" x-show="selectedProvider === 'AWS Bedrock'">e.g. <code>anthropic.claude-3-5-sonnet-20241022-v2:0</code>, <code>us.meta.llama3-2-90b-instruct-v1:0</code></p>
             <p class="hint" x-show="selectedProvider === 'Fireworks AI'">Format: <code>accounts/fireworks/models/&lt;model-id&gt;</code></p>
-            <p class="hint" x-show="!['xAI Grok (SuperGrok)','xAI','Anthropic (Claude)','AWS Bedrock','Fireworks AI','Custom Endpoint','Azure Foundry'].includes(selectedProvider) && selectedProvider">Check your provider's docs for model names. OpenRouter format: <code>provider/model-name</code></p>
+            <p class="hint" x-show="selectedProvider === 'MiniMax'">e.g. <code>MiniMax-M3</code>, <code>MiniMax-M2.7</code></p>
+            <p class="hint" x-show="!['xAI Grok (SuperGrok)','xAI','Anthropic (Claude)','AWS Bedrock','Fireworks AI','MiniMax','Custom Endpoint','Azure Foundry'].includes(selectedProvider) && selectedProvider">Check your provider's docs for model names. OpenRouter format: <code>provider/model-name</code></p>
           </div>
         </div>
 
@@ -1931,6 +1945,9 @@ function app() {
       }
       if (p.isAzure) {
         this.vars.AZURE_FOUNDRY_BASE_URL = '';
+      }
+      if (p.key === 'MINIMAX_API_KEY') {
+        this.vars.MINIMAX_REGION = '';
       }
       if (this.selectedProvider === providerKey) this.selectedProvider = '';
       try {
