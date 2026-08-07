@@ -45,9 +45,13 @@ RUN apt-get update && \
 # oversized image (>5 MB / >8000px), which then bakes into immutable history
 # and bricks the session on Anthropic's non-retryable 400. We bake it in.
 # When bumping HERMES_REF, re-check hermes-agent's pyproject.toml [all] and
-# the extras below against the new release's pyproject.toml.
+# the extras below against the new release's pyproject.toml.  The build-time
+# hardener also deliberately fails closed when its reviewed upstream anchor
+# changes, forcing the PID-1 safety guard to be re-validated on every bump.
+COPY build_tools/harden_hermes.py /app/build_tools/harden_hermes.py
 RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/hermes-agent.git /opt/hermes-agent && \
     cd /opt/hermes-agent && \
+    python /app/build_tools/harden_hermes.py /opt/hermes-agent/tools/approval.py && \
     uv pip install --system --no-cache -e ".[all,messaging,tts-premium,honcho,bedrock,anthropic,edge-tts,hindsight,vision]" && \
     cd /opt/hermes-agent/web && \
     npm install --silent && \

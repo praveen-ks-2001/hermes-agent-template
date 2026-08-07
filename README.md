@@ -21,6 +21,7 @@ Deploy [Hermes Agent](https://github.com/NousResearch/hermes-agent) on [Railway]
 - **Password-Protected** — one cookie-based login guards both the setup wizard and the Hermes dashboard
 - **Reset Config** — one-click reset to start fresh
 - **Backup & Restore** — download a full snapshot (config, credentials, chat history, memories, skills) as a zip, and restore it — including into a fresh project — to clone a deployment. Not encrypted; a safety snapshot is taken automatically before every restore.
+- **Runtime Recovery** — critical dashboard supervision, readiness-aware health checks, and restart-on-clean-exit deployment policy
 
 ## Getting Started
 
@@ -109,6 +110,22 @@ The Hermes dashboard is **never exposed directly** — it binds loopback and is 
 
 Config lives on the `/data` volume at `/data/.hermes/` (`.env`, `config.yaml`, `auth.json`, sessions, pairing state) and survives redeploys. Gateway output is captured into a ring buffer and streamed to the Logs panel.
 
+## Runtime Hardening and Recovery
+
+This template applies three complementary safeguards around Hermes' local terminal runtime:
+
+1. **PID 1 command guard at image build time.** `build_tools/harden_hermes.py` adds an unconditional Hermes approval rule for real `kill ... 1` command forms, including signal flags, absolute `/bin/kill` paths, wrappers, and multi-PID target lists. The image build fails if the reviewed upstream anchor changes, so a Hermes version bump cannot silently drop the guard.
+2. **Critical-process supervision.** If the native Hermes dashboard exits unexpectedly, the admin server restarts it with capped exponential backoff. `/health` returns `503 degraded` while the dashboard is unavailable and includes both dashboard and gateway state for diagnosis.
+3. **Platform-level recovery.** `railway.toml` uses Railway's `ALWAYS` restart policy, so the deployment is recreated even when the top-level process exits cleanly with code 0. The Dockerfile alone owns the `tini` entrypoint; the Railway config does not override or duplicate it.
+
+Railway currently makes the `ALWAYS` policy available only on paid plans. Free/trial deployments cannot provide the same clean-exit recovery guarantee; changing the template back to `ON_FAILURE` accepts the original failure mode where an intentional `SIGTERM` can leave the deployment stopped. See Railway's [restart policy documentation](https://docs.railway.com/deployments/restart-policy).
+
+### Safe restart procedure
+
+Restart or redeploy this service from Railway's deployment controls. Do not ask Hermes to restart its own container, and do not approve shell commands that signal PID 1 (`kill 1`, `kill -TERM 1`, and variants). The in-image command guard is defense in depth for the known command path, not a general-purpose sandbox for arbitrary code execution.
+
+Hermes' dashboard, gateway, and terminal tools still share one container and PID namespace in this single-service template. Strong containment requires moving agent execution into a separate Railway service/container with a private API boundary; that is a larger architecture change than this recovery hardening.
+
 ## Running Locally
 
 ```bash
@@ -125,7 +142,7 @@ This template pins a specific Hermes Agent release in the `Dockerfile` (`ARG HER
 - **Recommended:** set a `HERMES_REF` service variable in Railway to any upstream [release tag](https://github.com/NousResearch/hermes-agent/releases) (e.g. `v2026.7.20`), then redeploy. It's passed in as a Docker build arg and overrides the Dockerfile default — no code change needed.
 - **Or** bump `ARG HERMES_REF` in the `Dockerfile` and redeploy.
 
-The "Update" button inside the Hermes dashboard is a **no-op on Railway** (it detects a container install and refuses) — the image is immutable, so a runtime self-update wouldn't survive a redeploy. Bump `HERMES_REF` and redeploy instead. When jumping releases, re-check that the Dockerfile's install extras still match upstream's `pyproject.toml`.
+The "Update" button inside the Hermes dashboard is a **no-op on Railway** (it detects a container install and refuses) — the image is immutable, so a runtime self-update wouldn't survive a redeploy. Bump `HERMES_REF` and redeploy instead. When jumping releases, re-check that the Dockerfile's install extras still match upstream's `pyproject.toml` **and** re-validate the PID 1 approval guard against the new `tools/approval.py`. The build intentionally fails when that reviewed source anchor changes.
 
 ## Credits
 

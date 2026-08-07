@@ -39,7 +39,7 @@ import tempfile
 import time
 import zipfile
 from collections import deque
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import httpx
@@ -1250,17 +1250,29 @@ class Dashboard:
 
     All subprocess output is streamed to our stdout (→ Railway logs) with a
     `[dashboard]` prefix AND retained in a ring buffer for diagnostics.
-    Unexpected exits are explicitly logged with their return code.
+    Unexpected exits are explicitly logged with their return code and
+    supervised with bounded exponential backoff.  The dashboard is the
+    user-facing critical process, so its state also drives /health readiness.
     """
 
     def __init__(self):
         self.proc: asyncio.subprocess.Process | None = None
+        self.state = "stopped"
         self.logs: deque[str] = deque(maxlen=300)
+        self.started_at: float | None = None
+        self.restarts = 0
         self._drain_task: asyncio.Task | None = None
+        self._respawn_task: asyncio.Task | None = None
+        self._stopping = False
+        self._recent_exits: list[float] = []
 
-    async def start(self):
+    async def start(self, *, reset_budget: bool = True):
         if self.proc and self.proc.returncode is None:
             return
+        if reset_budget:
+            self._recent_exits.clear()
+        self.state = "starting"
+        self._stopping = False
         try:
             self.proc = await asyncio.create_subprocess_exec(
                 "hermes", "dashboard",
@@ -1283,37 +1295,106 @@ class Dashboard:
                 stderr=asyncio.subprocess.STDOUT,
                 env=build_hermes_env(),
             )
+            self.state = "running"
+            self.started_at = time.time()
             print(f"[dashboard] spawned pid={self.proc.pid} → {HERMES_DASHBOARD_URL}", flush=True)
-            self._drain_task = asyncio.create_task(self._drain())
+            self._drain_task = asyncio.create_task(self._drain(self.proc))
         except Exception as e:
-            print(f"[dashboard] FAILED to spawn: {e!r}", flush=True)
+            self.state = "error"
+            message = f"FAILED to spawn: {e!r}"
+            self.logs.append(message)
+            print(f"[dashboard] {message}", flush=True)
+            self._queue_respawn()
 
-    async def _drain(self):
+    async def _drain(self, proc: asyncio.subprocess.Process):
         """Stream subprocess output to Railway logs (prefixed) and a ring buffer."""
-        assert self.proc and self.proc.stdout
+        assert proc.stdout
         try:
-            async for raw in self.proc.stdout:
+            async for raw in proc.stdout:
                 line = ANSI_ESCAPE.sub("", raw.decode(errors="replace").rstrip())
                 self.logs.append(line)
                 print(f"[dashboard] {line}", flush=True)
         except Exception as e:
             print(f"[dashboard] drain error: {e!r}", flush=True)
         finally:
-            rc = self.proc.returncode if self.proc else None
-            if rc is not None and rc != 0:
-                print(f"[dashboard] EXITED with code {rc} — reverse proxy will return 503 until restart", flush=True)
-            elif rc == 0:
-                print(f"[dashboard] exited cleanly (code 0)", flush=True)
+            # stdout reaching EOF normally coincides with process exit, but
+            # wait() guarantees returncode is populated before classifying it.
+            rc = await proc.wait()
+            if proc is not self.proc:
+                return
+            if self._stopping:
+                return
+            self.state = "error"
+            self.started_at = None
+            message = f"EXITED with code {rc} — supervising restart"
+            self.logs.append(message)
+            print(f"[dashboard] {message}", flush=True)
+            self._queue_respawn()
+
+    def _queue_respawn(self) -> None:
+        """Schedule one dashboard recovery loop after an unexpected failure."""
+        if self._stopping:
+            return
+        if self._respawn_task and not self._respawn_task.done():
+            return
+        self._respawn_task = asyncio.create_task(self._supervise_respawn())
+
+    async def _supervise_respawn(self) -> None:
+        """Retry dashboard startup with capped backoff until it stays alive."""
+        try:
+            while not self._stopping:
+                now = time.monotonic()
+                self._recent_exits = [
+                    exited_at
+                    for exited_at in self._recent_exits
+                    if now - exited_at < RESPAWN_WINDOW_S
+                ]
+                self._recent_exits.append(now)
+                attempt = len(self._recent_exits)
+                delay = min(
+                    RESPAWN_BASE_DELAY * 2 ** (attempt - 1),
+                    RESPAWN_MAX_DELAY,
+                )
+                self.state = "restarting"
+                self.logs.append(
+                    f"[dashboard] restarting in {int(delay)}s (attempt {attempt})"
+                )
+                await asyncio.sleep(delay)
+                if self._stopping:
+                    return
+                if self.proc and self.proc.returncode is None:
+                    return
+                self.restarts += 1
+                await self.start(reset_budget=False)
+                if self.proc and self.proc.returncode is None:
+                    return
+        finally:
+            self._respawn_task = None
 
     async def stop(self):
+        self._stopping = True
+        current_task = asyncio.current_task()
+        if (
+            self._respawn_task
+            and self._respawn_task is not current_task
+            and not self._respawn_task.done()
+        ):
+            self._respawn_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._respawn_task
         if not self.proc or self.proc.returncode is not None:
+            self.state = "stopped"
+            self.started_at = None
             return
+        self.state = "stopping"
         self.proc.terminate()
         try:
             await asyncio.wait_for(self.proc.wait(), timeout=5)
         except asyncio.TimeoutError:
             self.proc.kill()
             await self.proc.wait()
+        self.state = "stopped"
+        self.started_at = None
 
     async def restart(self):
         """Respawn so a freshly-saved provider key reaches the embedded Chat tab.
@@ -1324,7 +1405,21 @@ class Dashboard:
         staying broken until a full redeploy.
         """
         await self.stop()
+        self.restarts += 1
         await self.start()
+
+    def status(self) -> dict:
+        uptime = (
+            int(time.time() - self.started_at)
+            if self.started_at and self.state == "running"
+            else None
+        )
+        return {
+            "state": self.state,
+            "pid": self.proc.pid if self.proc and self.proc.returncode is None else None,
+            "uptime": uptime,
+            "restarts": self.restarts,
+        }
 
 
 dash = Dashboard()
@@ -1461,7 +1556,16 @@ async def page_index(request: Request):
 
 
 async def route_health(request: Request):
-    return JSONResponse({"status": "ok", "gateway": gw.state})
+    dashboard_status = dash.status()
+    healthy = dashboard_status["state"] == "running"
+    return JSONResponse(
+        {
+            "status": "ok" if healthy else "degraded",
+            "gateway": gw.state,
+            "dashboard": dashboard_status,
+        },
+        status_code=200 if healthy else 503,
+    )
 
 
 async def api_config_get(request: Request):
