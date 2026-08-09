@@ -11,6 +11,27 @@ release.
 
 ---
 
+## Unreleased — OpenAI Codex OAuth
+
+### Features
+- Added **OpenAI Codex (ChatGPT subscription)** to `/setup`, using Hermes'
+  native `openai-codex` device-code OAuth flow rather than an OpenAI API key.
+- The setup page now shows the verification link, copyable user code,
+  expiration and terminal authorization states, then loads the account's Codex
+  model choices from Hermes. Users can cancel, disconnect, or reauthorize.
+
+### Reliability and security
+- Codex credentials in Hermes' current credential pool and legacy provider
+  token layout are recognized after gateway restarts and Railway redeploys.
+  Readiness fails closed when the model, provider pin, credentials, or YAML
+  configuration is missing or malformed.
+- `write_config_yaml()` preserves dashboard-selected models and providers when
+  `LLM_MODEL` is absent, avoiding blank OAuth configuration on restart.
+- OAuth proxy responses are allowlisted and never expose access/refresh tokens,
+  Hermes session tokens, authorization headers, or raw `auth.json` contents.
+- Documented the persistent `/data` volume requirement and the security impact
+  of storing account credentials in cloud infrastructure and backups.
+
 ## release/v2026.8.3/1 — August 8, 2026
 **Hermes v2026.8.3 · major (Hermes upgrade, from v2026.7.20)**
 
