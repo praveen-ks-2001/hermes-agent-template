@@ -396,7 +396,7 @@ def write_config_yaml(data: dict[str, str], *, reset_model: bool = False) -> Non
     """
     import yaml  # hermes-agent already pulls pyyaml; deferred import keeps cold start light
 
-    model = data.get("LLM_MODEL", "")
+    model = str(data.get("LLM_MODEL") or "").strip()
     config_path = Path(HERMES_HOME) / "config.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -407,9 +407,13 @@ def write_config_yaml(data: dict[str, str], *, reset_model: bool = False) -> Non
                 loaded = yaml.safe_load(f)
             if isinstance(loaded, dict):
                 existing = loaded
-        except (yaml.YAMLError, OSError):
-            # Treat unparseable as absent — we'll overwrite with template defaults.
-            existing = {}
+        except (yaml.YAMLError, OSError) as exc:
+            # Never replace a file we could not parse.  In particular, a
+            # transient/partial volume read must not turn a valid OAuth model
+            # selection into a blank template during container startup.
+            raise ValueError("Existing Hermes configuration could not be parsed; fix config.yaml before saving") from exc
+        if not isinstance(loaded, dict):
+            raise ValueError("Existing Hermes configuration must contain a YAML mapping")
 
     merged = dict(existing)
 
@@ -423,7 +427,14 @@ def write_config_yaml(data: dict[str, str], *, reset_model: bool = False) -> Non
         merged_model = {"default": ""}
     else:
         merged_model = dict(merged.get("model") if isinstance(merged.get("model"), dict) else {})
-        merged_model["default"] = model
+        # The native Hermes dashboard writes OAuth model selections directly
+        # to config.yaml and does not need LLM_MODEL in .env.  Preserve that
+        # selection on every gateway restart/redeploy unless the setup form
+        # supplied a real, non-empty replacement.
+        if model:
+            merged_model["default"] = model
+        else:
+            merged_model.setdefault("default", "")
         current_provider = str(merged_model.get("provider") or "").strip()
         # Only default to "auto" on a config that has never had a provider
         # pinned. Once a provider is set explicitly — either by
@@ -622,17 +633,78 @@ _XAI_GRANT_TYPE  = "urn:ietf:params:oauth:grant-type:device_code"
 _xai_oauth_state: dict | None = None  # one auth at a time (single-user deployment)
 
 
-def _has_xai_oauth_tokens() -> bool:
-    """True when auth.json contains a valid xAI OAuth refresh token."""
+def _read_auth_json() -> dict:
+    """Read Hermes' credential store without ever logging its contents."""
     auth_path = Path(HERMES_HOME) / "auth.json"
     if not auth_path.exists():
-        return False
+        return {}
     try:
-        data = json.loads(auth_path.read_text())
-        tokens = data.get("providers", {}).get("xai-oauth", {}).get("tokens", {})
-        return bool(isinstance(tokens, dict) and tokens.get("refresh_token"))
+        loaded = json.loads(auth_path.read_text())
+        return loaded if isinstance(loaded, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _has_xai_oauth_tokens() -> bool:
+    """True when auth.json contains a valid xAI OAuth refresh token."""
+    providers = _read_auth_json().get("providers")
+    state = providers.get("xai-oauth") if isinstance(providers, dict) else None
+    tokens = state.get("tokens") if isinstance(state, dict) else None
+    return bool(isinstance(tokens, dict) and tokens.get("refresh_token"))
+
+
+def _codex_credentials_in_auth_json(data: dict | None = None) -> bool:
+    """Recognize current and legacy Hermes Codex OAuth credential layouts.
+
+    Hermes v2026.8.3 resolves inference credentials from
+    ``credential_pool.openai-codex`` and retains the singleton provider state
+    at ``providers.openai-codex.tokens``.  The official status helper is the
+    primary readiness check; this shape-only reader is a fail-closed fallback
+    for early startup/import failures and older persisted volumes.
+    """
+    data = data if isinstance(data, dict) else _read_auth_json()
+    pool = data.get("credential_pool")
+    entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get("last_status") == "dead":
+                continue
+            access = str(entry.get("access_token") or "").strip()
+            refresh = str(entry.get("refresh_token") or "").strip()
+            if access and refresh:
+                return True
+
+    providers = data.get("providers")
+    state = providers.get("openai-codex") if isinstance(providers, dict) else None
+    tokens = state.get("tokens") if isinstance(state, dict) else None
+    return bool(
+        isinstance(tokens, dict)
+        and str(tokens.get("access_token") or "").strip()
+        and str(tokens.get("refresh_token") or "").strip()
+    )
+
+
+def _codex_status_from_hermes() -> bool | None:
+    """Use Hermes' official status resolver when it can be imported safely.
+
+    ``None`` means the helper was unavailable or failed before it could
+    determine state; only then do callers use the conservative on-disk
+    compatibility check above.
+    """
+    try:
+        from hermes_cli.auth import get_codex_auth_status
+    except (ImportError, ModuleNotFoundError):
+        return None
+    try:
+        status = get_codex_auth_status()
     except Exception:
-        return False
+        return None
+    return bool(isinstance(status, dict) and status.get("logged_in"))
+
+
+def _has_codex_oauth_credentials() -> bool:
+    official = _codex_status_from_hermes()
+    return official if official is not None else _codex_credentials_in_auth_json()
 
 
 def _save_xai_auth_json(tokens: dict) -> None:
@@ -854,6 +926,32 @@ async def api_oauth_xai_status(request: Request) -> Response:
     })
 
 
+def _configured_model_from_yaml() -> tuple[str, str, bool]:
+    """Return ``(model, provider, parsed)`` from config.yaml.
+
+    A missing file is a valid empty configuration.  A present but malformed
+    file is not: readiness must fail instead of guessing and starting the
+    gateway against a partially-read configuration.
+    """
+    import yaml
+
+    config_path = Path(HERMES_HOME) / "config.yaml"
+    if not config_path.exists():
+        return "", "", True
+    try:
+        loaded = yaml.safe_load(config_path.read_text())
+    except (OSError, yaml.YAMLError):
+        return "", "", False
+    if not isinstance(loaded, dict):
+        return "", "", False
+    model_cfg = loaded.get("model")
+    if not isinstance(model_cfg, dict):
+        return "", "", True
+    model = str(model_cfg.get("default") or model_cfg.get("name") or "").strip()
+    provider = str(model_cfg.get("provider") or "").strip().lower()
+    return model, provider, True
+
+
 def is_config_complete(data: dict[str, str] | None = None) -> bool:
     """Single source of truth for 'ready to run the gateway'.
 
@@ -861,9 +959,29 @@ def is_config_complete(data: dict[str, str] | None = None) -> bool:
     """
     if data is None:
         data = read_env(ENV_FILE)
-    has_model = bool(data.get("LLM_MODEL"))
-    has_provider = any(data.get(k) for k in PROVIDER_KEYS) or _has_xai_oauth_tokens()
-    return has_model and has_provider
+    yaml_model, yaml_provider, parsed = _configured_model_from_yaml()
+    if not parsed:
+        return False
+
+    env_model = str(data.get("LLM_MODEL") or "").strip()
+    selected_model = yaml_model or env_model
+    if not selected_model:
+        return False
+
+    # Explicit OAuth routing is fail-closed: another unrelated API key must
+    # not make an openai-codex/xai-oauth selection look ready after its own
+    # persisted credentials were removed or malformed.
+    if yaml_provider == "openai-codex":
+        return _has_codex_oauth_credentials()
+    if yaml_provider == "xai-oauth":
+        return _has_xai_oauth_tokens()
+
+    if any(data.get(k) for k in PROVIDER_KEYS):
+        return True
+
+    # Backward compatibility for the template's older xAI flow, which wrote
+    # LLM_MODEL before every deployment had an explicit provider pin.
+    return bool(_has_xai_oauth_tokens())
 
 
 def mask(data: dict[str, str]) -> dict[str, str]:
@@ -1086,6 +1204,10 @@ class Gateway:
     async def start(self, *, reset_budget: bool = True):
         if self.proc and self.proc.returncode is None:
             return
+        if not is_config_complete():
+            self.state = "stopped"
+            self.logs.append("[gateway] start skipped — provider/model not configured")
+            return
         # A manual Start/Restart (or boot) grants a fresh crash-loop budget; the
         # auto-respawn path passes reset_budget=False so repeated crashes keep
         # accumulating toward the give-up threshold.
@@ -1095,9 +1217,11 @@ class Gateway:
         self._stopping = False
         try:
             env = build_hermes_env()
-            model = env.get("LLM_MODEL", "")
+            yaml_model, yaml_provider, _ = _configured_model_from_yaml()
+            model = yaml_model or env.get("LLM_MODEL", "")
             provider_key = next((env.get(k, "") for k in PROVIDER_KEYS if env.get(k)), "")
-            print(f"[gateway] model={model or '⚠ NOT SET'} | provider_key={'set' if provider_key else '⚠ NOT SET'}", flush=True)
+            auth_kind = yaml_provider or ("api-key" if provider_key else "not-set")
+            print(f"[gateway] model={model or '⚠ NOT SET'} | provider={auth_kind}", flush=True)
             # Write config.yaml so hermes picks up the model (env vars alone aren't always enough)
             write_config_yaml(read_env(ENV_FILE))
             # --replace: force-displace any existing gateway.pid lock holder
@@ -1461,6 +1585,295 @@ async def set_active_model_via_hermes(
     return None
 
 
+# ── Native Hermes OpenAI Codex OAuth bridge ─────────────────────────────────
+# The pinned Hermes dashboard owns the OAuth client, device-code exchange,
+# refresh lifecycle, and credential persistence.  These wrappers only attach
+# Hermes' server-side session token and project an allowlisted, non-secret
+# response shape for the setup page.
+class HermesProxyError(Exception):
+    def __init__(self, message: str, status_code: int = 503):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+async def _hermes_api_json(
+    method: str,
+    path: str,
+    *,
+    json_body: dict | None = None,
+    timeout: float = 20.0,
+) -> dict:
+    """Call one allowlisted local Hermes API path with its session token."""
+    if not path.startswith("/api/") or "\n" in path or "\r" in path:
+        raise HermesProxyError("Invalid Hermes API path.", 500)
+    try:
+        session_token = await _get_hermes_session_token()
+    except Exception as exc:
+        raise HermesProxyError(
+            "The native Hermes dashboard is not available yet. Wait a moment and try again."
+        ) from exc
+    if not session_token:
+        raise HermesProxyError(
+            "Hermes started, but its dashboard session token could not be obtained. Restart the service and try again."
+        )
+
+    try:
+        response = await get_http_client().request(
+            method,
+            f"{HERMES_DASHBOARD_URL}{path}",
+            json=json_body,
+            headers={_SESSION_TOKEN_HEADER: session_token},
+            timeout=httpx.Timeout(timeout),
+        )
+    except httpx.RequestError as exc:
+        raise HermesProxyError(
+            "The native Hermes dashboard could not be reached. Wait for it to finish starting and try again."
+        ) from exc
+
+    if response.status_code == 404:
+        raise HermesProxyError(
+            "OpenAI Codex OAuth is unavailable in this Hermes version.", 409
+        )
+    if response.status_code in {401, 403}:
+        raise HermesProxyError(
+            "Hermes rejected the internal dashboard session. Restart the service and try again."
+        )
+    if response.status_code >= 400:
+        # Never forward the upstream response body: provider and validation
+        # errors can contain token-shaped values, URLs, or auth-store paths.
+        raise HermesProxyError(
+            "Hermes could not complete the OAuth request. Check the account settings and try again.",
+            502 if response.status_code >= 500 else 400,
+        )
+    try:
+        payload = response.json()
+    except Exception as exc:
+        raise HermesProxyError("Hermes returned an invalid OAuth response.", 502) from exc
+    if not isinstance(payload, dict):
+        raise HermesProxyError("Hermes returned an invalid OAuth response.", 502)
+    return payload
+
+
+def _proxy_error_response(exc: HermesProxyError) -> JSONResponse:
+    return JSONResponse({"error": exc.message}, status_code=exc.status_code)
+
+
+def _codex_provider_from_catalog(payload: dict) -> dict | None:
+    providers = payload.get("providers")
+    if not isinstance(providers, list):
+        return None
+    return next(
+        (
+            row for row in providers
+            if isinstance(row, dict) and row.get("id") == "openai-codex"
+        ),
+        None,
+    )
+
+
+def _codex_status_public(payload: dict) -> dict:
+    provider = _codex_provider_from_catalog(payload)
+    model, selected_provider, _ = _configured_model_from_yaml()
+    if provider is None:
+        return {
+            "available": False,
+            "connected": False,
+            "status": "error",
+            "model": model if selected_provider == "openai-codex" else "",
+            "error": "OpenAI Codex OAuth is unavailable in this Hermes version.",
+        }
+    raw_status = provider.get("status")
+    connected = bool(isinstance(raw_status, dict) and raw_status.get("logged_in"))
+    return {
+        "available": True,
+        "connected": connected,
+        "status": "connected" if connected else "not_connected",
+        "model": model if selected_provider == "openai-codex" else "",
+    }
+
+
+_OAUTH_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+_OAUTH_STATUS_MAP = {
+    "pending": "waiting",
+    "approved": "connected",
+    "denied": "denied",
+    "expired": "expired",
+    "cancelled": "canceled",
+    "canceled": "canceled",
+    "error": "error",
+}
+
+
+def _valid_oauth_session_id(session_id: str) -> bool:
+    return bool(_OAUTH_SESSION_ID_RE.fullmatch(session_id or ""))
+
+
+def _safe_oauth_status_message(status: str) -> str:
+    return {
+        "denied": "Authorization was denied. Start again when you are ready.",
+        "expired": "The device code expired. Start authorization again to get a new code.",
+        "canceled": "Authorization was canceled.",
+        "error": "Hermes could not complete authorization. Try again; if it repeats, check the service logs.",
+    }.get(status, "")
+
+
+async def api_oauth_codex_status(request: Request) -> Response:
+    if err := guard(request):
+        return err
+    try:
+        payload = await _hermes_api_json("GET", "/api/providers/oauth")
+        return JSONResponse(_codex_status_public(payload))
+    except HermesProxyError as exc:
+        return _proxy_error_response(exc)
+
+
+async def api_oauth_codex_start(request: Request) -> Response:
+    if err := guard(request):
+        return err
+    try:
+        payload = await _hermes_api_json(
+            "POST", "/api/providers/oauth/openai-codex/start", json_body={}
+        )
+    except HermesProxyError as exc:
+        return _proxy_error_response(exc)
+
+    session_id = str(payload.get("session_id") or "")
+    user_code = str(payload.get("user_code") or "")
+    verification_url = str(payload.get("verification_url") or "")
+    parsed_verification_url = _urlparse(verification_url)
+    if (
+        not _valid_oauth_session_id(session_id)
+        or not re.fullmatch(r"[A-Za-z0-9-]{3,64}", user_code)
+        or parsed_verification_url.scheme != "https"
+        or parsed_verification_url.hostname != "auth.openai.com"
+    ):
+        return JSONResponse({"error": "Hermes returned an incomplete device-code response."}, status_code=502)
+    try:
+        expires_in = max(0, int(payload.get("expires_in") or 0))
+        poll_interval = min(30, max(2, int(payload.get("poll_interval") or 5)))
+    except (TypeError, ValueError):
+        expires_in, poll_interval = 0, 5
+    return JSONResponse({
+        "session_id": session_id,
+        "user_code": user_code,
+        "verification_url": verification_url,
+        "status": "waiting",
+        "expires_at": time.time() + expires_in if expires_in else None,
+        "poll_interval": poll_interval,
+    })
+
+
+async def api_oauth_codex_poll(request: Request) -> Response:
+    if err := guard(request):
+        return err
+    session_id = request.path_params.get("session_id", "")
+    if not _valid_oauth_session_id(session_id):
+        return JSONResponse({"error": "Invalid OAuth session."}, status_code=400)
+    try:
+        payload = await _hermes_api_json(
+            "GET", f"/api/providers/oauth/openai-codex/poll/{session_id}"
+        )
+    except HermesProxyError as exc:
+        return _proxy_error_response(exc)
+    status = _OAUTH_STATUS_MAP.get(str(payload.get("status") or "").lower(), "error")
+    public = {
+        "session_id": session_id,
+        "status": status,
+        "expires_at": payload.get("expires_at") if isinstance(payload.get("expires_at"), (int, float)) else None,
+    }
+    message = _safe_oauth_status_message(status)
+    if message:
+        public["error"] = message
+    return JSONResponse(public)
+
+
+async def api_oauth_codex_cancel(request: Request) -> Response:
+    if err := guard(request):
+        return err
+    session_id = request.path_params.get("session_id", "")
+    if not _valid_oauth_session_id(session_id):
+        return JSONResponse({"error": "Invalid OAuth session."}, status_code=400)
+    try:
+        payload = await _hermes_api_json(
+            "DELETE", f"/api/providers/oauth/sessions/{session_id}"
+        )
+    except HermesProxyError as exc:
+        return _proxy_error_response(exc)
+    return JSONResponse({
+        "ok": bool(payload.get("ok")),
+        "session_id": session_id,
+        "status": "canceled",
+    })
+
+
+async def api_oauth_codex_disconnect(request: Request) -> Response:
+    if err := guard(request):
+        return err
+    try:
+        payload = await _hermes_api_json(
+            "DELETE", "/api/providers/oauth/openai-codex"
+        )
+    except HermesProxyError as exc:
+        return _proxy_error_response(exc)
+    _, selected_provider, _ = _configured_model_from_yaml()
+    if selected_provider == "openai-codex":
+        await gw.stop()
+    return JSONResponse({
+        "ok": bool(payload.get("ok")),
+        "status": "not_connected",
+    })
+
+
+def _codex_models_public(payload: dict) -> list[str]:
+    providers = payload.get("providers")
+    if not isinstance(providers, list):
+        return []
+    row = next((
+        item for item in providers
+        if isinstance(item, dict) and str(item.get("slug") or "").lower() == "openai-codex"
+    ), None)
+    if row is None:
+        return []
+    unavailable = {
+        str(item) for item in (row.get("unavailable_models") or [])
+        if isinstance(item, str)
+    }
+    models: list[str] = []
+    for item in row.get("models") or []:
+        model = item if isinstance(item, str) else item.get("id") if isinstance(item, dict) else ""
+        model = str(model or "").strip()
+        if (
+            model
+            and re.fullmatch(r"[A-Za-z0-9._:/-]{1,200}", model)
+            and model not in unavailable
+            and model not in models
+        ):
+            models.append(model)
+    return models
+
+
+async def api_oauth_codex_models(request: Request) -> Response:
+    if err := guard(request):
+        return err
+    if not _has_codex_oauth_credentials():
+        return JSONResponse({
+            "error": "OpenAI Codex is not connected. Complete authorization before loading models."
+        }, status_code=409)
+    try:
+        payload = await _hermes_api_json(
+            "GET", "/api/model/options?explicit_only=true"
+        )
+    except HermesProxyError as exc:
+        return _proxy_error_response(exc)
+    models = _codex_models_public(payload)
+    if not models:
+        return JSONResponse({
+            "error": "Authorization succeeded, but Hermes found no compatible Codex models for this account."
+        }, status_code=409)
+    return JSONResponse({"provider": "openai-codex", "models": models})
+
+
 # ── Route handlers ────────────────────────────────────────────────────────────
 async def page_index(request: Request):
     if err := guard(request): return err
@@ -1476,7 +1889,16 @@ async def api_config_get(request: Request):
     async with cfg_lock:
         data = read_env(ENV_FILE)
     defs = [{"key": k, "label": l, "category": c, "secret": s} for k, l, c, s in ENV_VARS]
-    return JSONResponse({"vars": mask(data), "defs": defs})
+    model, provider, parsed = _configured_model_from_yaml()
+    return JSONResponse({
+        "vars": mask(data),
+        "defs": defs,
+        "config_complete": is_config_complete(data),
+        "model_config": {
+            "model": model if parsed else "",
+            "provider": provider if parsed else "",
+        },
+    })
 
 
 async def api_config_put(request: Request):
@@ -1492,6 +1914,9 @@ async def api_config_put(request: Request):
         # — empty when the user saved without touching a provider (e.g. just
         # toggling a messaging channel). See set_active_model_via_hermes().
         active_provider_key = str(body.pop("_active_provider_key", "") or "").strip()
+        active_oauth_provider = str(body.pop("_active_oauth_provider", "") or "").strip().lower()
+        if active_oauth_provider not in {"", "openai-codex"}:
+            return JSONResponse({"error": "Unsupported OAuth provider."}, status_code=400)
         new_vars = body.get("vars", {})
         async with cfg_lock:
             existing = read_env(ENV_FILE)
@@ -1499,12 +1924,33 @@ async def api_config_put(request: Request):
             for k, v in existing.items():
                 if k not in merged:
                     merged[k] = v
-            write_env(ENV_FILE, merged)
+
+        model_value = str(merged.get("LLM_MODEL") or "").strip()
+        if active_oauth_provider == "openai-codex":
+            if not model_value:
+                return JSONResponse({"error": "Select a Codex model before saving."}, status_code=400)
+            if not _has_codex_oauth_credentials():
+                return JSONResponse({
+                    "error": "OpenAI Codex is not connected. Complete authorization before saving."
+                }, status_code=409)
+            # For Codex, an explicit provider pin is mandatory.  Apply it via
+            # Hermes before mutating .env so a dashboard failure cannot leave
+            # behind a false configured state.
+            pin_warning = await set_active_model_via_hermes(
+                "openai-codex", model_value
+            )
+            if pin_warning:
+                return JSONResponse({
+                    "error": "Hermes could not save the Codex model. Wait for the dashboard to finish starting and try again."
+                }, status_code=503)
+            merged["_MODEL_OPENAI_CODEX"] = model_value
+
+        async with cfg_lock:
             write_config_yaml(merged)
+            write_env(ENV_FILE, merged)
 
         model_warning = None
         hermes_provider_id = HERMES_PROVIDER_IDS.get(active_provider_key)
-        model_value = merged.get("LLM_MODEL", "").strip()
         if hermes_provider_id and model_value:
             pin_base_url = ""
             pin_api_key = ""
@@ -1518,13 +1964,13 @@ async def api_config_put(request: Request):
                 hermes_provider_id, model_value, base_url=pin_base_url, api_key=pin_api_key
             )
 
-        if restart:
+        if restart and is_config_complete(merged):
             asyncio.create_task(gw.restart())
             # The dashboard (and its embedded Chat tab) only ever sees the env
             # it was spawned with — a newly-saved provider key doesn't reach
             # the already-running process otherwise. See Dashboard.restart().
             asyncio.create_task(dash.restart())
-        resp = {"ok": True, "restarting": restart}
+        resp = {"ok": True, "restarting": bool(restart and is_config_complete(merged))}
         if model_warning:
             resp["warning"] = model_warning
         return JSONResponse(resp)
@@ -1544,6 +1990,9 @@ async def api_status(request: Request):
         {"configured": bool(data.get(k))}
         for k in PROVIDER_KEYS
     }
+    providers["OpenAI Codex (ChatGPT subscription)"] = {
+        "configured": _has_codex_oauth_credentials()
+    }
     channels = {
         name: {"configured": bool(v := data.get(key,"")) and v.lower() not in ("false","0","no")}
         for name, key in CHANNEL_MAP.items()
@@ -1559,6 +2008,8 @@ async def api_logs(request: Request):
 
 async def api_gw_start(request: Request):
     if err := guard(request): return err
+    if not is_config_complete():
+        return JSONResponse({"error": "Provider, model, or authorization is incomplete."}, status_code=409)
     asyncio.create_task(gw.start())
     return JSONResponse({"ok": True})
 
@@ -1571,6 +2022,8 @@ async def api_gw_stop(request: Request):
 
 async def api_gw_restart(request: Request):
     if err := guard(request): return err
+    if not is_config_complete():
+        return JSONResponse({"error": "Provider, model, or authorization is incomplete."}, status_code=409)
     asyncio.create_task(gw.restart())
     return JSONResponse({"ok": True})
 
@@ -2396,6 +2849,12 @@ routes = [
     Route("/setup/api/oauth/xai/start",         api_oauth_xai_start,  methods=["POST"]),
     Route("/setup/api/oauth/xai/status",        api_oauth_xai_status),
     Route("/setup/api/oauth/xai",               api_oauth_xai_delete, methods=["DELETE"]),
+    Route("/setup/api/oauth/codex",             api_oauth_codex_status, methods=["GET"]),
+    Route("/setup/api/oauth/codex",             api_oauth_codex_disconnect, methods=["DELETE"]),
+    Route("/setup/api/oauth/codex/start",       api_oauth_codex_start, methods=["POST"]),
+    Route("/setup/api/oauth/codex/models",      api_oauth_codex_models, methods=["GET"]),
+    Route("/setup/api/oauth/codex/poll/{session_id}", api_oauth_codex_poll, methods=["GET"]),
+    Route("/setup/api/oauth/codex/sessions/{session_id}", api_oauth_codex_cancel, methods=["DELETE"]),
     Route("/setup/api/backup/download",         api_backup_download),
     Route("/setup/api/backup/restore",          api_backup_restore,  methods=["POST"]),
     Route("/setup/api/backup/snapshots",        api_backup_snapshots),

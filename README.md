@@ -26,11 +26,12 @@ Deploy [Hermes Agent](https://github.com/NousResearch/hermes-agent) on [Railway]
 
 The easiest way to get started:
 
-### 1. Get an LLM Provider Key (free)
+### 1. Choose an LLM provider
 
-1. Register for free at [OpenRouter](https://openrouter.ai/)
-2. Create an API key from your [OpenRouter dashboard](https://openrouter.ai/keys)
-3. Pick a free model from the [model list sorted by price](https://openrouter.ai/models?order=pricing-low-to-high) (e.g. `google/gemma-3-1b-it:free`, `meta-llama/llama-3.1-8b-instruct:free`)
+- **ChatGPT/Codex subscription:** no OpenAI API key is needed. Deploy first, then select **OpenAI Codex (ChatGPT subscription)** on `/setup` and complete the device-code authorization described below.
+- **API key:** for example, register at [OpenRouter](https://openrouter.ai/), create a key, and pick a model from its [model list](https://openrouter.ai/models?order=pricing-low-to-high).
+
+Account and plan access varies. The template does not promise that every ChatGPT plan or account can use every Codex model; the setup page shows the models Hermes reports for the authorized account.
 
 ### 2. Set Up a Telegram Bot (fastest channel)
 
@@ -45,12 +46,12 @@ Hermes Agent interacts entirely through messaging channels — there is no chat 
 
 1. Click the **Deploy on Railway** button above
 2. Set the `ADMIN_PASSWORD` environment variable (or a random one will be generated and printed to deploy logs)
-3. Attach a **volume** mounted at `/data` (persists config across redeploys)
+3. Attach a **persistent volume** mounted at `/data` (required for OAuth credentials and recommended for every deployment)
 4. Open your app URL — log in with username `admin` and your password
 
 ### 4. Configure in the Admin Dashboard
 
-1. **LLM Provider** — select OpenRouter from the dropdown, paste your API key, enter the model name
+1. **LLM Provider** — either select OpenAI Codex and authorize your account, or select an API-key provider and paste its key
 2. **Messaging Channel** — check Telegram, paste the Bot Token from BotFather
 3. Click **Save & Start** — the gateway will start and your bot goes live
 
@@ -76,9 +77,37 @@ All other configuration (LLM provider, model, channels, tools) is managed throug
 
 Selectable from the setup wizard's dropdown:
 
-OpenRouter, Anthropic (Claude), Google AI Studio, xAI (API key **or** SuperGrok OAuth), DeepSeek, Qwen Cloud (DashScope), GLM / Z.AI, Kimi, MiniMax (global **and** China), NVIDIA NIM, Fireworks AI, NovitaAI, Arcee AI, Step Plan, GMI Cloud, Hugging Face, GitHub Copilot, OpenCode Zen, OpenCode Go, Kilo Code, Ollama Cloud, AWS Bedrock, Azure Foundry, and any OpenAI-compatible **Custom Endpoint**.
+OpenAI Codex (ChatGPT subscription OAuth), OpenRouter, Anthropic (Claude), Google AI Studio, xAI (API key **or** SuperGrok OAuth), DeepSeek, Qwen Cloud (DashScope), GLM / Z.AI, Kimi, MiniMax (global **and** China), NVIDIA NIM, Fireworks AI, NovitaAI, Arcee AI, Step Plan, GMI Cloud, Hugging Face, GitHub Copilot, OpenCode Zen, OpenCode Go, Kilo Code, Ollama Cloud, AWS Bedrock, Azure Foundry, and any OpenAI-compatible **Custom Endpoint**.
 
 Every other provider Hermes supports can still be configured from the Hermes Dashboard → **Keys** tab — the wizard covers the common ones, not the limit.
+
+## OpenAI Codex via ChatGPT subscription
+
+This flow uses Hermes' native `openai-codex` provider and ChatGPT device-code authorization. It does **not** use an OpenAI API key, and this Railway wrapper does not implement or store an OAuth client secret.
+
+1. Open `/setup` and select **OpenAI Codex (ChatGPT subscription)**.
+2. Click **Connect OpenAI Codex**.
+3. Use **Open verification page**, then enter the displayed user code. The setup page polls Hermes until the request is approved, denied, canceled, expired, or fails.
+4. After the status changes to **connected**, select one of the Codex models Hermes reports for the authorized account.
+5. Click **Save & Start**. Hermes writes `model.default` and pins `model.provider: openai-codex`; no LLM API key is required.
+
+To switch accounts or recover from an expired code, use **Authorize again**. To remove the authorization, use **Disconnect**; if the gateway is actively using Codex, the template stops it so it cannot continue with credentials already loaded in memory.
+
+Hermes owns the access and refresh tokens and stores them in its normal credential state under `/data/.hermes/`, including `auth.json` and its credential pool. Tokens are never copied to `.env`, Railway variables, browser storage, setup API responses, or logs.
+
+### Persistence and security
+
+Mount a persistent Railway volume at `/data`. With the same volume attached, a gateway restart or redeploy reuses the saved authorization. Without it, `auth.json` and `config.yaml` can be lost and the account must be authorized again.
+
+Treat the service and volume as sensitive infrastructure. Anyone who can access the Railway service, its shell, backups, or the `/data` volume may be able to access account credentials. Restrict Railway project access, use a strong `ADMIN_PASSWORD`, and handle unencrypted template backups as secrets.
+
+### Troubleshooting
+
+- **Code expired:** click **Start authorization again** and use the newest code. Old codes cannot be resumed.
+- **Authorization denied or canceled:** start a new flow when ready.
+- **Codex provider unavailable:** confirm the image is using the pinned/supported Hermes release and wait for the native dashboard to finish starting.
+- **Connected but no models appear:** the authorized account may not expose a compatible Codex model. Reauthorize the intended account and check its plan/model access.
+- **Sent back to `/setup` after a redeploy:** verify the `/data` volume is still mounted at `/data` and contains both `.hermes/config.yaml` and `.hermes/auth.json`. Missing or malformed credentials deliberately make readiness incomplete and prevent a false gateway start.
 
 ## Supported Channels
 
