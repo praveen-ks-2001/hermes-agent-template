@@ -1599,6 +1599,7 @@
             <div style="display:flex;gap:8px;">
               <button class="btn sm success" @click="approve(r.platform,r.code)">Approve</button>
               <button class="btn sm danger"  @click="deny(r.platform,r.code)">Deny</button>
+              <button class="btn sm" style="opacity:.6;font-size:11px;" @click="resetLockout(r.platform)" title="Clear rate-limit lockout for this platform">Reset lockout</button>
             </div>
           </div>
         </template>
@@ -2387,6 +2388,11 @@ function app() {
       if (!confirm('Revoke access for this user?')) return;
       await fetch('/setup/api/pairing/revoke', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({platform,user_id}) });
       this.notify('Revoked', true); await this.loadPairing();
+    },
+    async resetLockout(platform) {
+      const r = await fetch('/setup/api/pairing/reset-lockout', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({platform}) });
+      if (r.ok) { this.notify(`Lockout cleared for ${platform}`, true); }
+      else { this.notify('Reset failed', false); }
     },
 
     async downloadBackup() {

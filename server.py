@@ -1847,6 +1847,27 @@ async def api_pairing_revoke(request: Request):
     return JSONResponse({"ok": True})
 
 
+async def api_pairing_reset_lockout(request: Request):
+    if err := guard(request): return err
+    try: body = await request.json()
+    except Exception: return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    platform = str(body.get("platform", "")).strip().lower()
+    if not re.fullmatch(r"[a-z0-9_-]+", platform):
+        return JSONResponse({"error": "valid platform required"}, status_code=400)
+    rate_limit_path = PAIRING_DIR / "_rate_limits.json"
+    limits = _pjson(rate_limit_path)
+    keys_removed = [
+        key
+        for key in (f"_failures:{platform}", f"_lockout:{platform}")
+        if key in limits
+    ]
+    for key in keys_removed:
+        del limits[key]
+    if keys_removed:
+        _wjson(rate_limit_path, limits)
+    return JSONResponse({"ok": True, "keys_removed": keys_removed})
+
+
 # ── Backup & Restore ─────────────────────────────────────────────────────────
 # Thin wrapper around hermes' OWN `hermes backup` / `hermes import` CLI
 # (hermes_cli/backup.py, verified against v2026.7.1) rather than reimplementing
@@ -2726,7 +2747,8 @@ routes = [
     Route("/setup/api/pairing/approve",         api_pairing_approve, methods=["POST"]),
     Route("/setup/api/pairing/deny",            api_pairing_deny,    methods=["POST"]),
     Route("/setup/api/pairing/approved",        api_pairing_approved),
-    Route("/setup/api/pairing/revoke",          api_pairing_revoke,  methods=["POST"]),
+    Route("/setup/api/pairing/revoke",          api_pairing_revoke, methods=["POST"]),
+    Route("/setup/api/pairing/reset-lockout",   api_pairing_reset_lockout, methods=["POST"]),
     Route("/setup/api/oauth/xai/start",         api_oauth_xai_start,  methods=["POST"]),
     Route("/setup/api/oauth/xai/status",        api_oauth_xai_status),
     Route("/setup/api/oauth/xai",               api_oauth_xai_delete, methods=["DELETE"]),
