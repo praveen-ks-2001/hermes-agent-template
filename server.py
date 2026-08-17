@@ -317,6 +317,11 @@ ENV_VARS = [
     ("MATRIX_HOMESERVER",        "Homeserver URL",           "matrix",    False),
     ("MATRIX_ACCESS_TOKEN",      "Access Token",             "matrix",    True),
     ("MATRIX_USER_ID",           "User ID",                  "matrix",    False),
+    ("FEISHU_APP_ID",             "App ID",                   "lark",      False),
+    ("FEISHU_APP_SECRET",         "App Secret",               "lark",      True),
+    ("FEISHU_VERIFICATION_TOKEN", "Verification Token",       "lark",      True),
+    ("FEISHU_ENCRYPT_KEY",        "Encrypt Key",              "lark",      True),
+    ("FEISHU_DOMAIN",             "Domain (feishu / lark)",   "lark",      False),
     ("GATEWAY_ALLOW_ALL_USERS",  "Allow all users",          "gateway",   False),
     ("ADMIN_USERNAME",           "Admin username",           "admin",     False),
     ("ADMIN_PASSWORD",           "Admin password",           "admin",     True),
@@ -413,6 +418,7 @@ CHANNEL_MAP  = {
     "Email":       "EMAIL_ADDRESS",
     "Mattermost":  "MATTERMOST_TOKEN",
     "Matrix":      "MATRIX_ACCESS_TOKEN",
+    "Lark":        "FEISHU_APP_ID",
 }
 
 
@@ -699,15 +705,15 @@ def write_env(path: Path, data: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     cat_order = ["model", "provider", "bedrock", "azure", "custom", "tool",
                  "telegram", "discord", "slack", "whatsapp",
-                 "email", "mattermost", "matrix", "gateway", "admin"]
+                 "email", "mattermost", "matrix", "lark", "gateway", "admin"]
     cat_labels = {
         "model": "Model", "provider": "Providers",
         "bedrock": "AWS Bedrock", "azure": "Azure Foundry",
         "custom": "Custom Endpoint", "tool": "Tools",
         "telegram": "Telegram", "discord": "Discord", "slack": "Slack",
         "whatsapp": "WhatsApp", "email": "Email",
-        "mattermost": "Mattermost", "matrix": "Matrix", "gateway": "Gateway",
-        "admin": "Admin",
+        "mattermost": "Mattermost", "matrix": "Matrix", "lark": "Lark",
+        "gateway": "Gateway", "admin": "Admin",
     }
     key_cat = {k: c for k, _, c, _ in ENV_VARS}
     grouped: dict[str, list[str]] = {c: [] for c in cat_order}

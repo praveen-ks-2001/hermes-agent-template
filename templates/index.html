@@ -1410,6 +1410,22 @@
             </div>
           </div>
 
+          <!-- Lark -->
+          <div class="toggle-row" @click="channelsEnabled.lark=!channelsEnabled.lark; if(!channelsEnabled.lark) clearChannel('lark')">
+            <input type="checkbox" :checked="channelsEnabled.lark" @click.stop @change="channelsEnabled.lark=$event.target.checked; if(!channelsEnabled.lark) clearChannel('lark')">
+            <span class="toggle-icon">🪶</span>
+            <span class="toggle-label">Lark</span>
+          </div>
+          <div class="toggle-body" x-show="channelsEnabled.lark">
+            <div class="toggle-fields">
+              <div><label class="field-label">App ID</label><input type="text" :value="vars.FEISHU_APP_ID||''" @input="vars.FEISHU_APP_ID=$event.target.value" placeholder="cli_..."></div>
+              <div><label class="field-label">App Secret</label><input type="password" :value="vars.FEISHU_APP_SECRET||''" @input="vars.FEISHU_APP_SECRET=$event.target.value"></div>
+              <div><label class="field-label">Verification Token</label><input type="password" :value="vars.FEISHU_VERIFICATION_TOKEN||''" @input="vars.FEISHU_VERIFICATION_TOKEN=$event.target.value" placeholder="optional, webhook mode"></div>
+              <div><label class="field-label">Encrypt Key</label><input type="password" :value="vars.FEISHU_ENCRYPT_KEY||''" @input="vars.FEISHU_ENCRYPT_KEY=$event.target.value" placeholder="optional, webhook mode"></div>
+              <div><label class="field-label">Domain</label><input type="text" :value="vars.FEISHU_DOMAIN||''" @input="vars.FEISHU_DOMAIN=$event.target.value" placeholder="feishu (CN) or lark (intl)"></div>
+            </div>
+          </div>
+
           <!-- WhatsApp -->
           <div class="toggle-row" style="border-bottom:none;" @click="channelsEnabled.whatsapp=!channelsEnabled.whatsapp; vars.WHATSAPP_ENABLED=channelsEnabled.whatsapp?'true':'false'">
             <input type="checkbox" :checked="channelsEnabled.whatsapp" @click.stop @change="channelsEnabled.whatsapp=$event.target.checked; vars.WHATSAPP_ENABLED=$event.target.checked?'true':'false'">
@@ -2111,7 +2127,7 @@ function app() {
 
     channelsEnabled: {
       telegram: false, discord: false, slack: false,
-      email: false, mattermost: false, matrix: false, whatsapp: false,
+      email: false, mattermost: false, matrix: false, lark: false, whatsapp: false,
     },
 
     toolsEnabled: Object.fromEntries(tools.map(t => [t.key, false])),
@@ -2197,6 +2213,7 @@ function app() {
         email:      ['EMAIL_ADDRESS','EMAIL_PASSWORD','EMAIL_IMAP_HOST','EMAIL_SMTP_HOST'],
         mattermost: ['MATTERMOST_URL','MATTERMOST_TOKEN'],
         matrix:     ['MATRIX_HOMESERVER','MATRIX_ACCESS_TOKEN','MATRIX_USER_ID'],
+        lark:       ['FEISHU_APP_ID','FEISHU_APP_SECRET','FEISHU_VERIFICATION_TOKEN','FEISHU_ENCRYPT_KEY','FEISHU_DOMAIN'],
         whatsapp:   ['WHATSAPP_ENABLED'],
       };
       for (const k of keysMap[ch] || []) this.vars[k] = '';
@@ -2266,6 +2283,7 @@ function app() {
             email:      !!(this.vars.EMAIL_ADDRESS),
             mattermost: !!(this.vars.MATTERMOST_URL),
             matrix:     !!(this.vars.MATRIX_HOMESERVER),
+            lark:       !!(this.vars.FEISHU_APP_ID),
             whatsapp:   this.vars.WHATSAPP_ENABLED === 'true',
           };
           // Detect active tools
