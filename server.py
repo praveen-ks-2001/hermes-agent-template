@@ -1195,7 +1195,8 @@ RESPAWN_MAX_DELAY  = 30.0    # backoff cap
 
 
 class Gateway:
-    def __init__(self):
+    def __init__(self, profile: str | None = None):
+        self.profile = profile
         self.proc: asyncio.subprocess.Process | None = None
         self.state = "stopped"
         self.logs: deque[str] = deque(maxlen=500)
@@ -1223,8 +1224,15 @@ class Gateway:
             model = env.get("LLM_MODEL", "")
             provider_key = next((env.get(k, "") for k in PROVIDER_KEYS if env.get(k)), "")
             print(f"[gateway] model={model or '⚠ NOT SET'} | provider_key={'set' if provider_key else '⚠ NOT SET'}", flush=True)
-            # Write config.yaml so hermes picks up the model (env vars alone aren't always enough)
-            write_config_yaml(read_env(ENV_FILE))
+            # The setup UI manages only the default profile's config. Named
+            # profiles keep their own config under profiles/<name>/.
+            if not self.profile:
+                write_config_yaml(read_env(ENV_FILE))
+
+            cmd = ["hermes"]
+            if self.profile:
+                cmd += ["-p", self.profile]
+            cmd += ["gateway", "run", "--replace"]
             # --replace: force-displace any existing gateway.pid lock holder
             # before claiming it. Without this, a lock left behind by a prior
             # incarnation this supervisor doesn't recognize as "our" dead
@@ -1239,7 +1247,7 @@ class Gateway:
             # class of stuck-lock — it force-kills whatever holds the lock
             # (graceful SIGTERM, escalating to SIGKILL) before claiming it.
             self.proc = await asyncio.create_subprocess_exec(
-                "hermes", "gateway", "run", "--replace",
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
@@ -1320,7 +1328,11 @@ class Gateway:
             return
         if self.proc and self.proc.returncode is None:
             return  # a manual Start already brought a live gateway back
-        if not is_config_complete():
+        profile_env = (
+            Path(HERMES_HOME) / "profiles" / self.profile / ".env"
+            if self.profile else ENV_FILE
+        )
+        if not (profile_env.exists() if self.profile else is_config_complete()):
             self.state = "stopped"
             self.logs.append("[gateway] restart skipped — provider/model not configured")
             return
@@ -1335,7 +1347,11 @@ class Gateway:
     def _clear_stale_pidfile(self, dead_pid: int | None) -> None:
         if dead_pid is None:
             return
-        pid_file = Path(HERMES_HOME) / "gateway.pid"
+        gateway_home = (
+            Path(HERMES_HOME) / "profiles" / self.profile
+            if self.profile else Path(HERMES_HOME)
+        )
+        pid_file = gateway_home / "gateway.pid"
         try:
             rec = json.loads(pid_file.read_text())
         except Exception:
@@ -1358,6 +1374,11 @@ class Gateway:
 
 
 gw = Gateway()
+# Additional profile gateways — supervised by the same Railway admin server
+# so they survive container restarts alongside the default profile.
+# Set HERMES_EXTRA_PROFILES=eko,other to auto-start extra profile gateways.
+EXTRA_PROFILES = [p.strip() for p in os.environ.get("HERMES_EXTRA_PROFILES", "").split(",") if p.strip()]
+extra_gateways: list[Gateway] = [Gateway(profile=p) for p in EXTRA_PROFILES]
 cfg_lock = asyncio.Lock()
 
 
@@ -2204,7 +2225,10 @@ async def api_backup_restore(request: Request) -> Response:
                 )
             _prune_pre_restore_snapshots()
 
-            await gw.stop()
+            await asyncio.gather(
+                gw.stop(),
+                *[eg.stop() for eg in extra_gateways],
+            )
             await dash.stop()
             try:
                 rc, output = await _run_hermes_cli("import", str(upload_path), "--force")
@@ -2231,6 +2255,11 @@ async def api_backup_restore(request: Request) -> Response:
                 await dash.start()
                 if is_config_complete():
                     await gw.start()
+                await asyncio.gather(*[
+                    eg.start()
+                    for eg in extra_gateways
+                    if (Path(HERMES_HOME) / "profiles" / eg.profile / ".env").exists()
+                ])
 
             if rc != 0:
                 return JSONResponse({"error": "Restore failed", "output": output[-2000:]}, status_code=500)
@@ -2485,6 +2514,16 @@ async def auto_start():
         asyncio.create_task(gw.start())
     else:
         print("[server] Config incomplete — gateway not started. Configure provider + model in the admin UI.", flush=True)
+    # Start additional profile gateways (e.g. eko) that have their own .env with
+    # credentials configured. These are supervised independently with the same
+    # crash-loop protection as the default profile.
+    for eg in extra_gateways:
+        profile_env = Path(HERMES_HOME) / "profiles" / eg.profile / ".env"
+        if profile_env.exists():
+            print(f"[server] Starting extra profile gateway: {eg.profile}", flush=True)
+            asyncio.create_task(eg.start())
+        else:
+            print(f"[server] Extra profile '{eg.profile}' has no .env — skipping", flush=True)
 
 
 @asynccontextmanager
@@ -2514,6 +2553,7 @@ async def lifespan(app):
         await asyncio.gather(
             gw.stop(),
             dash.stop(),
+            *[eg.stop() for eg in extra_gateways],
             return_exceptions=True,
         )
         global _http_client
@@ -2780,6 +2820,8 @@ if __name__ == "__main__":
 
     def _shutdown():
         loop.create_task(gw.stop())
+        for eg in extra_gateways:
+            loop.create_task(eg.stop())
         loop.create_task(dash.stop())
         server.should_exit = True
 
