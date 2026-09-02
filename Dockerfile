@@ -8,7 +8,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 # newest tag (format `vYYYY.M.D`, optionally with a `.PATCH` suffix, e.g.
 # `v2026.5.29.2`) and update the default below. Use `main` only if you accept
 # that every rebuild can pull arbitrary new upstream commits.
-ARG HERMES_REF=v2026.8.27
+ARG HERMES_REF=v2026.8.31
 
 # Persist the build arg into the runtime env so the admin UI can display which
 # Hermes release this image actually pins. Reading it (rather than hardcoding a

@@ -120,9 +120,9 @@ Open `http://localhost:8080` and log in with `admin` / `changeme`.
 
 ## Updating Hermes
 
-This template pins a specific Hermes Agent release in the `Dockerfile` (`ARG HERMES_REF`, currently `v2026.8.27`). To upgrade:
+This template pins a specific Hermes Agent release in the `Dockerfile` (`ARG HERMES_REF`, currently `v2026.8.31`). To upgrade:
 
-- **Recommended:** set a `HERMES_REF` service variable in Railway to any upstream [release tag](https://github.com/NousResearch/hermes-agent/releases) (e.g. `v2026.8.27`), then redeploy. It's passed in as a Docker build arg and overrides the Dockerfile default — no code change needed.
+- **Recommended:** set a `HERMES_REF` service variable in Railway to any upstream [release tag](https://github.com/NousResearch/hermes-agent/releases) (e.g. `v2026.8.31`) or branch (`main`), then redeploy. It's passed in as a Docker build arg and overrides the Dockerfile default — no code change needed. Use `main` only for unreleased fixes (e.g. the `EMAIL_*_TLS_VERIFY` toggle for self-hosted email bridges) and expect every rebuild to pull new upstream commits.
 - **Or** bump `ARG HERMES_REF` in the `Dockerfile` and redeploy.
 
 The "Update" button inside the Hermes dashboard is a **no-op on Railway** (it detects a container install and refuses) — the image is immutable, so a runtime self-update wouldn't survive a redeploy. Bump `HERMES_REF` and redeploy instead. When jumping releases, re-check that the Dockerfile's install extras still match upstream's `pyproject.toml`.
