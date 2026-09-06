@@ -294,7 +294,10 @@ ENV_VARS = [
     ("CUSTOM_PROVIDER_NAME",     "Custom Provider name",     "custom",    False),
     ("PARALLEL_API_KEY",         "Parallel (search)",        "tool",      True),
     ("FIRECRAWL_API_KEY",        "Firecrawl (scrape)",       "tool",      True),
-    ("TAVILY_API_KEY",           "Tavily (search)",          "tool",      True),
+    # Keenable replaced Tavily in v2026.8.31 — upstream DELETED plugins/web/tavily
+    # and every TAVILY_API_KEY reader with it, so the old field wrote a key
+    # nothing reads. Keenable is the vendor hermes' own setup now offers instead.
+    ("KEENABLE_API_KEY",         "Keenable (search)",        "tool",      True),
     ("FAL_KEY",                  "FAL (image gen)",          "tool",      True),
     ("BROWSERBASE_API_KEY",      "Browserbase key",          "tool",      True),
     ("BROWSERBASE_PROJECT_ID",   "Browserbase project",      "tool",      False),
@@ -700,9 +703,26 @@ def hermes_dashboard_public_url() -> str:
 # (reproduced locally for HERMES_PARENT_PID against v2026.8.13).
 DASHBOARD_KILLING_KEYS = ("HERMES_PARENT_PID", "HERMES_DASHBOARD_PUBLIC_URL")
 
+# Keys that don't kill the dashboard but change WHO it trusts. hermes loads
+# $HERMES_HOME/.env into its own os.environ with override=True at startup —
+# i.e. AFTER the env build_hermes_env() hands the subprocess — so a value in the
+# FILE beats the credentials we pass. hermes' `basic` provider then registers a
+# different user/password than HermesSession signs in with, every proxied page
+# 502s with DASHBOARD_AUTH_FAILED_HTML, and nothing says why. A restore, a hand
+# edit, or hermes' own Keys tab can all put them there.
+#
+# Only the FILE is policed: hermes_dashboard_credentials() deliberately honours
+# these as explicit overrides when they arrive as real Railway variables.
+DASHBOARD_TRUST_KEYS = (
+    "HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
+    "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
+    "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH",
+    "HERMES_DASHBOARD_BASIC_AUTH_SECRET",
+)
+
 # Only a restored or hand-edited .env can carry these, so .env is healed once at
 # boot and after a restore rather than checked on every read.
-ENV_FILE_FORBIDDEN_KEYS = DASHBOARD_KILLING_KEYS
+ENV_FILE_FORBIDDEN_KEYS = DASHBOARD_KILLING_KEYS + DASHBOARD_TRUST_KEYS
 
 
 def build_hermes_env() -> dict[str, str]:
@@ -738,6 +758,32 @@ def build_hermes_env() -> dict[str, str]:
     # config.yaml, and inherited by all three restart paths (in-band, SIGUSR1,
     # and the dashboard's detached restart). setdefault: set e.g. 120 to re-arm.
     env.setdefault("HERMES_RESTART_AFTER_TURN_TIMEOUT", "0")
+    # v2026.8.31 moved the terminal/code-exec scratch root from /tmp to
+    # $HERMES_HOME/cache/terminal whenever TERMINAL_TEMP_DIR and TMPDIR are both
+    # unset (tools/environments/local.py). Upstream's motive was a tmpfs /tmp
+    # filling up; on Railway /tmp is ordinary container disk and $HERMES_HOME is
+    # the PERSISTENT VOLUME, so the new default parks sandbox dirs and
+    # background-job logs on /data, ships them inside every `hermes backup`
+    # (cache/ is not in upstream's _EXCLUDED_DIRS), and lets a locked *.db an
+    # agent script leaves there fail _safe_copy_db — which _live_db_names() then
+    # reports as an incomplete snapshot and ABORTS the restore. Pin the
+    # v2026.8.27 behaviour. Must be an existing absolute dir or hermes ignores it
+    # (/tmp always exists here).
+    env.setdefault("TERMINAL_TEMP_DIR", "/tmp")
+    # Pin every hermes subprocess to the root profile. hermes_cli/main.py's
+    # _apply_profile_override() runs at IMPORT — before argparse — so the
+    # `--external-supervisor` flag we pass (which only sets
+    # HERMES_GATEWAY_EXTERNAL_SUPERVISOR after parsing) is too late to stop it.
+    # It follows $HERMES_HOME/active_profile, which hermes' own dashboard and a
+    # `hermes profile use` in the Chat terminal both write. One such switch would
+    # silently re-home the gateway, the dashboard AND the dashboard's detached
+    # restart under profiles/<name>: pairing, config and the pid record then
+    # diverge from what this admin panel reads, and the next `--replace` refuses
+    # with "pid record belongs to a different HERMES_HOME". v2026.8.31 added this
+    # generic marker (#74872) as the opt-out; it is read ONLY by that guard
+    # (main.py `_under_gateway_supervisor`), never by is_gateway_supervisor_process()
+    # or the s6 redirect, so it cannot alter the exit-75 restart contract.
+    env.setdefault("HERMES_SUPERVISED_CHILD", "1")
     # Drop inbound values first: the template is the only thing allowed to
     # decide these (this pop covers a Railway service variable, which lands in
     # our own os.environ; _sanitize_env_file() covers the .env file).
@@ -760,7 +806,7 @@ def build_hermes_env() -> dict[str, str]:
 
 
 def _sanitize_env_file() -> None:
-    """Drop keys from .env that would let hermes kill its own dashboard."""
+    """Drop .env keys that would kill the dashboard or break its sign-in."""
     try:
         data = read_env(ENV_FILE)
     except OSError:
@@ -776,10 +822,24 @@ def _sanitize_env_file() -> None:
         print(f"[server] could not strip {removed} from .env: {e}", flush=True)
         return
     print(f"[server] removed {', '.join(removed)} from .env — it would have "
-          f"shut the dashboard down", flush=True)
+          f"shut the dashboard down or broken its sign-in", flush=True)
 
 
 def write_env(path: Path, data: dict[str, str]) -> None:
+    # Single chokepoint keeping ENV_FILE_FORBIDDEN_KEYS out of the FILE, not just
+    # out of the subprocess env. _sanitize_env_file() only runs at boot and after
+    # a restore, but /setup/api/config re-reads .env, merges it and writes it back
+    # — so a key added to the file between boots (hand edit, hermes' own Keys tab)
+    # survived that round-trip and reached the dashboard restart that same save
+    # triggers. Verified live: with a stray HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+    # the dashboard accepted THAT password and 401'd the template's own, which a
+    # still-valid persisted session hid until the next re-login.
+    forbidden = [k for k in ENV_FILE_FORBIDDEN_KEYS if k in data]
+    if forbidden:
+        data = {k: v for k, v in data.items() if k not in ENV_FILE_FORBIDDEN_KEYS}
+        print(f"[server] refused to write {', '.join(forbidden)} to .env — "
+              f"it would have shut the dashboard down or broken its sign-in",
+              flush=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     cat_order = ["model", "provider", "bedrock", "azure", "custom", "tool",
                  "telegram", "discord", "slack", "whatsapp",
@@ -1366,15 +1426,25 @@ class Gateway:
         self.state = "stopping"
         self.proc.terminate()
         try:
-            # 45s, not 20s: v2026.8.27 added `agent.cron_drain_timeout` (default
-            # 30) so a SIGTERM now waits for an in-flight cron job to finish
-            # before tearing down adapters. At 20s we SIGKILLed mid-drain,
-            # defeating that and leaving the job marked running forever. 45s
-            # clears the 30s drain plus adapter teardown (Telegram + Discord +
-            # Slack polling loops) and still sits inside hermes' own 60s
-            # shutdown watchdog. SIGKILL also skips hermes' atexit pid cleanup,
-            # which is exactly the mess _clear_stale_pidfile() then mops up.
-            await asyncio.wait_for(self.proc.wait(), timeout=45)
+            # 70s, not 45s. The stop path is a chain, not one timeout:
+            # `agent.cron_drain_timeout` (30) waits out an in-flight cron job,
+            # + CRON_DRAIN_CLEANUP_RESERVE_S (10), + the new v2026.8.31
+            # `gateway.signal_interrupt_grace_timeout`, + adapter teardown (~5s
+            # each for Telegram/Discord/Slack) + a bounded MCP shutdown + a
+            # PASSIVE WAL checkpoint in SessionDB.close(). With a cron job in
+            # flight that runs ~56s, so 45s landed our SIGKILL mid-teardown.
+            # v2026.8.31 sizes its OWN supervisors at
+            # max(60, max(drain, cron+10) + 30) = 70s
+            # (gateway/restart.py resolve_systemd_timeout_stop_sec) and raised
+            # its orphan-reaper grace 5s -> 30s after a SIGKILL during that
+            # checkpoint corrupted state.db (the 2026-08-31 incident named in
+            # hermes_cli/gateway.py). Matching 70 puts us BEHIND hermes' own 60s
+            # shutdown watchdog, which hard-exits and releases the pid file and
+            # lock itself — so this SIGKILL should now never fire, and the
+            # pid-file mess _clear_stale_pidfile() mops up stops happening.
+            # On a container stop Railway's own grace period is the real
+            # deadline; this bound only governs Restart / config-save.
+            await asyncio.wait_for(self.proc.wait(), timeout=70)
         except asyncio.TimeoutError:
             self.proc.kill()
             await self.proc.wait()
@@ -1398,10 +1468,28 @@ class Gateway:
         # A deliberate stop()/restart()/reset owns its own lifecycle — don't respawn.
         if self._stopping:
             return
+        # Exit 78 = GATEWAY_FATAL_CONFIG_EXIT_CODE (gateway/restart.py): a
+        # config error that no retry can fix — an invalid multiplexer config, or
+        # every enabled platform failing non-retryably. Upstream's own generated
+        # systemd unit pairs Restart=always with
+        # RestartPreventExitStatus=78 for exactly this, and deliberately does
+        # NOT use 78 when the failure is mixed/transient, so honouring it here
+        # cannot suppress a recoverable restart. Respawning would just burn the
+        # crash-loop budget on the same error and bury the reason.
+        if rc == 78:
+            self.state = "crashed"
+            msg = ("[gateway] exited (code 78: fatal config) — not respawning. "
+                   "Fix the configuration, then Start the gateway.")
+            self.logs.append(msg)
+            print(msg, flush=True)
+            return
         # Unexpected exit: in-band `/restart` (exit 75), a crash, or an OOM kill.
         # On Railway nothing else brings the gateway back, so we supervise it.
         self.state = "error"
+        # print() as well as the ring buffer: an unexpected exit is the one
+        # supervisor event worth having in `railway logs` without opening /setup.
         self.logs.append(f"[gateway] exited (code {rc}) — supervising restart")
+        print(f"[gateway] exited (code {rc}) — supervising restart", flush=True)
         asyncio.create_task(self._supervise_respawn(proc.pid))
 
     async def _supervise_respawn(self, dead_pid: int | None):
@@ -2452,7 +2540,10 @@ _IN_CONTAINER_INSTALL_RE = re.compile(
 # provider has a post_setup hook with an UNSATISFIED install-state predicate.
 # Today `_POST_SETUP_INSTALLED` (hermes_cli/tools_config.py) holds exactly one
 # entry — cua_driver, i.e. Computer Use — but upstream documents that dict as a
-# list to extend, so this will grow silently on future bumps.
+# list to extend, so this will grow silently on future bumps. Re-verified on
+# v2026.8.31: still just cua_driver. Do not confuse it with `_POST_SETUP_READY`
+# in the same file, which DID gain entries (lightpanda) — that one only gates an
+# interactive `hermes tools` prompt and never runs from an HTTP request.
 #
 # This is log-only, deliberately: unlike the two POST paths, we do NOT inject a
 # confirm() here. The existing notice says the install is wiped on redeploy,
