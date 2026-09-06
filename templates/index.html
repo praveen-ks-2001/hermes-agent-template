@@ -1839,6 +1839,43 @@
         </div>
 
         <div class="changelog-entry major">
+          <div class="changelog-date">September 6, 2026</div>
+          <div class="changelog-meta">
+            <span class="meta-box">
+              <span class="meta-label">Git branch</span>
+              <code>release/v2026.8.31/1</code>
+            </span>
+            <span class="meta-box version">
+              <span class="meta-label">Hermes compatible version</span>
+              <code>v2026.8.31</code>
+            </span>
+          </div>
+
+          <div class="changelog-group">Hermes update</div>
+          <ul class="changelog-list">
+            <li>Updated <strong>Hermes Agent to v2026.8.31</strong> (from v2026.8.27). Three more AI providers &mdash; <strong>Tencent TokenPlan</strong>, <strong>Ramp Router</strong> and <strong>Nebius</strong> &mdash; are available from the Hermes Dashboard &rarr; Keys tab, and Kanban boards can now be exported and imported.</li>
+            <li><strong>Scanned PDFs can be read now.</strong> If you have a Firecrawl key saved, pages that are just images of text get sent for OCR instead of coming back empty.</li>
+            <li><strong>Messaging the bot while it is still answering gets a reply.</strong> Hermes used to hold that message silently for up to 30 minutes; it now tells you within a few seconds to resend once the current answer is finished.</li>
+            <li><strong>Connecting a Claude Pro/Max subscription moved out of the dashboard.</strong> Hermes removed that button for policy reasons. Open the <strong>Chat</strong> tab's terminal and run <code>hermes auth add anthropic</code> instead &mdash; plain Anthropic API keys are unaffected.</li>
+          </ul>
+
+          <div class="changelog-group">Changes to support upstream updates</div>
+          <ul class="changelog-list">
+            <li><strong>Reading PDFs and Office files keeps working.</strong> Hermes made its document reader a built-in part of the package. This template used to install its own copy on top, which would now replace it with an older version Hermes then refuses to use &mdash; every PDF, Word, Excel and PowerPoint read would have failed on every deploy, retrying silently in the background forever. The extra copy is gone.</li>
+            <li><strong>Tavily search was removed from Hermes, so Setup offers Keenable instead.</strong> If you had picked Tavily as your search engine in the Hermes <strong>Tools</strong> tab, pick another one there &mdash; searches error until you do. Any Tavily key you saved is left untouched, just unused.</li>
+            <li><strong>Restarting waits for the bot to finish writing to disk.</strong> Hermes now takes longer to shut down when a scheduled job is running, and we were cutting it off part-way &mdash; something Hermes itself now documents as a cause of database corruption.</li>
+            <li><strong>Temporary files stay out of your storage.</strong> Hermes moved the bot's command scratch space onto your data volume; it is back in the container's temporary space, so backups stay small and a restore can't be blocked by leftovers.</li>
+          </ul>
+
+          <div class="changelog-group">Bug fixes</div>
+          <ul class="changelog-list">
+            <li><strong>Switching profiles from the Chat terminal no longer hijacks the bot.</strong> Running <code>hermes profile use</code> could quietly move the bot and the dashboard onto that profile at the next restart, so your approved users and settings appeared to vanish while the bot kept running as someone else.</li>
+            <li><strong>Dashboard sign-in keys saved into the config file can no longer lock you out.</strong> If they ever landed there &mdash; through a restore or the Keys tab &mdash; every Hermes page showed a sign-in error until a redeploy. They are now removed automatically at startup.</li>
+            <li><strong>A broken configuration no longer restarts in a loop.</strong> When the bot cannot start because of a settings problem, the gateway now stops and says so plainly instead of retrying the same failure five times.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry major">
           <div class="changelog-date">August 29, 2026</div>
           <div class="changelog-meta">
             <span class="meta-box">
@@ -2074,7 +2111,7 @@ function app() {
   const tools = [
     { key: 'PARALLEL_API_KEY',       label: 'Parallel (search)',         secret: true  },
     { key: 'FIRECRAWL_API_KEY',      label: 'Firecrawl (scraping)',       secret: true  },
-    { key: 'TAVILY_API_KEY',         label: 'Tavily (search)',            secret: true  },
+    { key: 'KEENABLE_API_KEY',       label: 'Keenable (search)',          secret: true  },
     { key: 'FAL_KEY',                label: 'FAL (image gen)',            secret: true  },
     { key: 'BROWSERBASE_API_KEY',    label: 'Browserbase',                secret: true  },
     { key: 'GITHUB_TOKEN',           label: 'GitHub',                     secret: true  },

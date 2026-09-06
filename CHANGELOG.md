@@ -11,6 +11,144 @@ release.
 
 ---
 
+## release/v2026.8.31/1 — September 6, 2026
+**Hermes v2026.8.31 · major (Hermes upgrade, from v2026.8.27)**
+
+### Hermes update
+- Hermes Agent **v2026.8.27 → v2026.8.31** (package 0.20.6 → 0.21.0). Three new
+  providers (Tencent TokenPlan, Ramp Router, Nebius Token Factory), Kanban board
+  export/import, and hosted Group Chat rooms (off by default,
+  `gateway.room_link_url` unset).
+- **Anthropic subscription OAuth was REMOVED from the dashboard.** Upstream
+  deleted `_start_anthropic_pkce`/`_submit_anthropic_pkce` and flipped the
+  catalog entry to `flow: "external"` — an unattended HTTP endpoint minting
+  Claude Pro/Max tokens sat on the wrong side of Anthropic's OAuth policy.
+  `POST /api/providers/oauth/anthropic/start` now 400s. The terminal path
+  (`hermes auth add anthropic`, runnable from the Chat tab) is unaffected.
+- **`agent.gateway_turn_lease_timeout` 1800 → 5.** A second message on a session
+  whose turn is still running is now rejected with a resend notice after ~5s
+  instead of blocking for up to 30 minutes. Still config.yaml-only —
+  `gateway/run.py` writes `HERMES_TURN_LEASE_TIMEOUT` into `os.environ`
+  unconditionally at import, so a Railway variable is clobbered.
+- **Scanned PDFs can now be OCR'd** when a `FIRECRAWL_API_KEY` is present:
+  firecrawl-anydoc 0.2.4 adds a typed `NeedsOcrError` and a hosted OCR path
+  (`tools/read_extract.py`). Opt out with `file_tools.hosted_ocr: false`.
+
+### Changes to support upstream updates
+- **PDF and Office reading would have broken on every deploy.** v2026.8.31 moved
+  `firecrawl-anydoc` out of lazy-install and into CORE `dependencies` at
+  `==0.2.4`, and bumped the lazy self-heal pin in `tools/lazy_deps.py` to match.
+  This template carried a later Dockerfile layer pinning `==0.1.6` (correct when
+  the package was lazy-only), which **downgrades** the core version at build
+  time. `_is_satisfied()` compares versions rather than presence, so the first
+  `.pdf/.docx/.xlsx/.pptx/.odt/.rtf/.epub` read tried to heal into
+  `HERMES_LAZY_INSTALL_TARGET` with a `--constraint` file generated from every
+  installed distribution — which pins `firecrawl-anydoc==0.1.6` — and uv
+  hard-failed `No solution found`. Reproduced locally with uv: the downgrade,
+  the resolver conflict, and `hasattr(anydoc, "NeedsOcrError") == False`. Every
+  document read would have failed, on every deploy, retried every 300s
+  (`ANYDOC_RETRY_SECONDS`) and never succeeding. The layer is deleted; core now
+  supplies 0.2.4.
+- **Tavily is gone from Hermes, so it is gone from Setup.** Upstream deleted
+  `plugins/web/tavily/` and every `TAVILY_API_KEY` reader with it (11 modules →
+  1 stale comment in `agent/redact.py`); `hermes_cli/setup.py` now advertises
+  "Exa, Parallel, Firecrawl, or Keenable". `ENV_VARS` and the setup UI offered a
+  field whose value nothing reads. Worse for anyone who had explicitly stored
+  `web.backend: tavily` from hermes' own Tools tab: `_get_backend()`
+  (`tools/web_tools.py`) returns a stored selection **strictly**, with no
+  availability probe and no fallback, so `web_search` returns
+  `no registered web search provider has that name` on every call. Replaced
+  with `KEENABLE_API_KEY`. An existing `TAVILY_API_KEY` on the volume is left
+  alone (config saves preserve keys outside `ENV_VARS`) — it is simply inert.
+- **Restarts no longer risk a torn `state.db`.** `Gateway.stop()` waited 45s
+  before SIGKILL. The v2026.8.31 stop path is a chain — `cron_drain_timeout`
+  (30) + `CRON_DRAIN_CLEANUP_RESERVE_S` (10) + the new
+  `gateway.signal_interrupt_grace_timeout` + adapter teardown + a newly bounded
+  MCP shutdown + a PASSIVE WAL checkpoint in `SessionDB.close()` — which with an
+  in-flight cron job runs ~56s. Upstream sizes its own supervisors at
+  `max(60, max(drain, cron+10) + 30)` = 70s
+  (`gateway/restart.py: resolve_systemd_timeout_stop_sec`) and raised its
+  orphan-reaper grace 5s → 30s after a SIGKILL during that checkpoint corrupted
+  `state.db` (the 2026-08-31 incident named in `hermes_cli/gateway.py`, which
+  also added a boot-time `PRAGMA quick_check`). Raised to 70s, which sits
+  *behind* hermes' own 60s shutdown watchdog — the watchdog hard-exits and
+  releases the pid file and lock itself, so this SIGKILL should now never fire.
+- **Terminal scratch stays off the volume.** v2026.8.31 changed the default
+  temp root in `tools/environments/local.py` from `/tmp` to
+  `$HERMES_HOME/cache/terminal` whenever `TERMINAL_TEMP_DIR` and `TMPDIR` are
+  both unset (upstream's motive was a tmpfs `/tmp` filling up). Here
+  `$HERMES_HOME` is the persistent volume: sandbox dirs and background-job logs
+  would accumulate on `/data`, ship inside every `hermes backup` (`cache/` is
+  not in upstream's `_EXCLUDED_DIRS`), and a locked `*.db` left there by an
+  agent script would fail `_safe_copy_db` — which `_live_db_names()` reports as
+  an incomplete snapshot and which **aborts a restore**. `build_hermes_env()`
+  now sets `TERMINAL_TEMP_DIR=/tmp`, restoring the v2026.8.27 behaviour.
+
+### Bug fixes
+- **A profile switch can no longer hijack the gateway.** `hermes_cli/main.py`'s
+  `_apply_profile_override()` runs at *import*, before argparse, and follows
+  `$HERMES_HOME/active_profile` — written by hermes' own dashboard and by
+  `hermes profile use` in the Chat terminal. Our `--external-supervisor` flag
+  only sets `HERMES_GATEWAY_EXTERNAL_SUPERVISOR` *after* parsing, so it was
+  always too late. One switch silently re-homed the gateway, the dashboard and
+  the dashboard's detached restart under `profiles/<name>`: pairing, config and
+  the pid record then diverged from what the admin panel reads, and the next
+  `--replace` refused with "pid record belongs to a different HERMES_HOME".
+  v2026.8.31 added `HERMES_SUPERVISED_CHILD` (#74872) as the opt-out and
+  `build_hermes_env()` now sets it. It is read *only* by that guard, never by
+  `is_gateway_supervisor_process()` or the s6 redirect, so the exit-75 contract
+  is untouched. (Hazard predates this release; the opt-out is new.)
+- **Dashboard credentials in `.env` can no longer lock every page out.** hermes
+  loads `$HERMES_HOME/.env` into its own `os.environ` with `override=True` at
+  startup — i.e. *after* the env `build_hermes_env()` hands the subprocess — so
+  a `HERMES_DASHBOARD_BASIC_AUTH_*` value in the FILE beats the credentials we
+  pass. hermes' `basic` provider then registers a different pair than
+  `HermesSession` signs in with and every proxied page 502s with no explanation.
+  A restore, a hand edit, or hermes' own Keys tab can all put them there. The
+  four keys join `ENV_FILE_FORBIDDEN_KEYS` (file only — they remain honoured as
+  genuine Railway variables, which `hermes_dashboard_credentials()` reads from
+  the same `os.environ`). Same class as the existing `HERMES_PARENT_PID` strip.
+- **A fatal config error no longer crash-loops.** Exit 78
+  (`GATEWAY_FATAL_CONFIG_EXIT_CODE`) means an invalid multiplexer config or every
+  enabled platform failing non-retryably — upstream pairs `Restart=always` with
+  `RestartPreventExitStatus=78` for exactly this, and deliberately avoids 78 when
+  the failure is mixed/transient. The supervisor now reports it and stops instead
+  of burning the crash-loop budget on the same error. Unexpected-exit lines are
+  also `print()`ed now, so they reach `railway logs` and not only the Logs panel.
+
+### Housekeeping
+- `requirements.txt` floor `uvicorn>=0.30` → `>=0.31`, tracking hermes' own core
+  pin (CIDR-aware `forwarded_allow_ips`). Same system site-packages either way.
+
+### Verified unchanged (audited, no action)
+Two independent passes covered all 1,657 changed upstream files. Still identical:
+the WebSocket route set (`pty`/`ws`/`events`/`console`/`pub`/kanban) and the
+SPA's socket usage, so the fail-closed allowlist is complete; `ws_max_size`
+(384 MiB) and the loopback ping settings on both hops; `host_header_middleware`
+and the whole middleware stack, so Host-stripping still satisfies it;
+`should_require_auth` / `should_require_dashboard_auth` / `_dashboard_public_hosts`
+/ `resolve_public_url` and the `basic` provider, so the auth-gate pairing and
+`/auth/password-login` are unchanged (the new `_desktop_loopback_auth_exempt`
+needs `HERMES_DESKTOP=1` plus a session token, neither of which is ever set
+here); `detect_install_method` and `is_container` (both container markers), so
+the docker stamp still refuses the Update button; the exit-75 restart contract
+and all six `--replace` refusal branches; `gateway/pairing.py` and the
+`get_hermes_dir("platforms/pairing", "pairing")` rule byte-for-byte; every
+backup constant (`_EXCLUDED_DIRS`, `_IMPORT_SKIP_NAMES`, the validator markers,
+`backup -o`, `import --force`); `state.db` `SCHEMA_VERSION` 26, so a v2026.8.27
+archive restores onto v2026.8.31 unmigrated; all nine install extras; the web
+build `outDir` and the `HERMES_TUI_DIR` contract.
+
+Two earlier notes in this repo were **wrong** and are corrected: the dashboard
+*lifespan* orphan reaper is gated on `HERMES_DESKTOP=1` and never runs here
+(only `_spawn_gateway_restart` reaps, and its exemption set is built from the
+raw `gateway.pid` + `gateway.lock` records plus an unbounded parent walk, not
+"up to 4 hops"); and `lightpanda` was added to `_POST_SETUP_READY`, an
+interactive-CLI prompt gate, **not** to `_POST_SETUP_INSTALLED`, which still
+holds only `cua_driver` — so the install-on-enable HTTP path is unchanged.
+
+---
+
 ## release/v2026.8.27/1 — August 29, 2026
 **Hermes v2026.8.27 · major (Hermes upgrade, from v2026.8.13)**
 

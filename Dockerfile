@@ -8,7 +8,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 # newest tag (format `vYYYY.M.D`, optionally with a `.PATCH` suffix, e.g.
 # `v2026.5.29.2`) and update the default below. Use `main` only if you accept
 # that every rebuild can pull arbitrary new upstream commits.
-ARG HERMES_REF=v2026.8.27
+ARG HERMES_REF=v2026.8.31
 
 # Persist the build arg into the runtime env so the admin UI can display which
 # Hermes release this image actually pins. Reading it (rather than hardcoding a
@@ -44,10 +44,10 @@ RUN apt-get update && \
 # [all] in v2026.6.5 no longer pulls in [dev]; messaging platforms, TTS, and
 # other heavy backends are lazy-installed by hermes at first use. We pre-install
 # the ones this template actually uses so first-message latency is instant.
-# `vision` (Pillow) is a soft-dep that is NOT in [all] and is otherwise
-# lazy-installed at first image use: without it hermes can't downscale an
-# oversized image (>5 MB / >8000px), which then bakes into immutable history
-# and bricks the session on Anthropic's non-retryable 400. We bake it in.
+# `vision` guards image downscaling (without Pillow an oversized image >5 MB /
+# >8000px bakes into immutable history and bricks the session on Anthropic's
+# non-retryable 400). The extra itself has been EMPTY since v2026.6.19 — Pillow
+# moved into core deps — so it resolves to a no-op; kept for back-compat.
 # When bumping HERMES_REF, re-check hermes-agent's pyproject.toml [all] and
 # the extras below against the new release's pyproject.toml.
 #
@@ -105,21 +105,22 @@ RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/h
 # editable from /opt/hermes-agent.
 RUN printf 'docker\n' > /opt/hermes-agent/.install_method
 
-# firecrawl-anydoc: hermes v2026.8.13's PDF / legacy-Office reader for read_file.
-# It is a LAZY dep (tools/lazy_deps.py "tool.doc_extract"), NOT an extra — so it
-# cannot be added to the `.[...]` string above; upstream deliberately withheld a
-# `doc-extract` extra until the package clears uv's 14-day exclude-newer window
-# (first release 2026-08-04). Without it baked in, the FIRST time the agent reads
-# a .pdf/.docx/.xlsx/.pptx/.odt/.rtf/.epub it pip-installs mid-turn into the
-# running container — which this image wipes on every redeploy, so it re-installs
-# after each deploy, and a failed install is retried only every 300s
-# (ANYDOC_RETRY_SECONDS) while the file silently reads as binary garbage.
+# firecrawl-anydoc (the PDF / legacy-Office reader behind read_file) is a CORE
+# dependency as of v2026.8.31 — pyproject.toml pins ==0.2.4 and exempts it from
+# [tool.uv] exclude-newer, so the main install above already has it.
 #
-# `cd /` is LOAD-BEARING: run from /opt/hermes-agent, uv reads that pyproject's
-# [tool.uv] exclude-newer="14 days" and REJECTS this package as too new. From /
-# there is no pyproject to discover, so the pin resolves normally (~2s, 3 MiB,
-# no transitive deps). Drop this layer once upstream ships the mirrored extra.
-RUN cd / && uv pip install --system --no-cache firecrawl-anydoc==0.1.6
+# Do NOT re-pin it in a later layer. We used to (==0.1.6, when it was lazy-only):
+# that layer runs AFTER the editable install and uv DOWNGRADES the core version,
+# and v2026.8.31 also bumped the lazy self-heal pin (tools/lazy_deps.py
+# "tool.doc_extract") to ==0.2.4. _is_satisfied() compares versions, not
+# presence, so the first PDF read tries to heal into HERMES_LAZY_INSTALL_TARGET
+# with a --constraint file built from every installed dist — which pins
+# firecrawl-anydoc==0.1.6 — and uv hard-fails "No solution found". Result:
+# EVERY PDF/.docx/.xlsx/.pptx/.odt/.rtf/.epub read fails, on every deploy,
+# retried every 300s (ANYDOC_RETRY_SECONDS) and never succeeding.
+#
+# Same trap for any other package we might pin separately: on a version bump,
+# grep the new pyproject's core dependencies for anything this Dockerfile pins.
 
 COPY requirements.txt /app/requirements.txt
 RUN uv pip install --system --no-cache -r /app/requirements.txt
