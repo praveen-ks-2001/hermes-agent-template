@@ -1503,10 +1503,37 @@ class Gateway:
         await self.start()
 
     async def _drain(self, proc: asyncio.subprocess.Process):
-        assert proc.stdout
-        async for raw in proc.stdout:
-            line = ANSI_ESCAPE.sub("", raw.decode(errors="replace").rstrip())
-            self.logs.append(line)
+        """Drain logs while watching process death independently of pipe EOF.
+
+        A gateway tool can leave a descendant holding the inherited stdout file
+        descriptor after the gateway itself exits.  Waiting for ``async for`` to
+        reach EOF before supervising the exit then strands the bot indefinitely.
+        Process death is authoritative; give buffered output a short grace period,
+        then cancel the reader and continue the lifecycle immediately.
+        """
+        stdout = proc.stdout
+        assert stdout
+
+        async def _pump_output():
+            async for raw in stdout:
+                line = ANSI_ESCAPE.sub("", raw.decode(errors="replace").rstrip())
+                self.logs.append(line)
+
+        output_task = asyncio.create_task(_pump_output())
+        # ``Process.wait()`` itself can wait for pipe transports to reach EOF on
+        # asyncio's Unix subprocess implementation.  Poll the authoritative
+        # returncode instead so an inherited descriptor cannot block supervision.
+        while proc.returncode is None:
+            await asyncio.sleep(0.05)
+        if not output_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(output_task), timeout=0.25)
+            except asyncio.TimeoutError:
+                output_task.cancel()
+                await asyncio.gather(output_task, return_exceptions=True)
+        else:
+            await asyncio.gather(output_task, return_exceptions=True)
+
         rc = proc.returncode
         # Ignore the drain of a process we've already replaced (e.g. via restart()).
         if proc is not self.proc:
