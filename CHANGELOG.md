@@ -11,6 +11,14 @@ release.
 
 ---
 
+## release/v0.22.2/3 — October 26, 2026
+**Hermes v0.22.2 · minor**
+
+### Improvements
+- **Cheaper Inference** is now in the Setup provider dropdown (OpenAI-compatible gateway, `CHEAPERINFERENCE_API_KEY`).
+
+---
+
 ## release/v0.22.2/2 — October 19, 2026
 **Hermes v0.22.2 · minor**
 
