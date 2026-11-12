@@ -1294,7 +1294,7 @@
             <p class="hint" x-show="selectedProvider === 'AWS Bedrock'">e.g. <code>anthropic.claude-3-5-sonnet-20241022-v2:0</code>, <code>us.meta.llama3-2-90b-instruct-v1:0</code></p>
             <p class="hint" x-show="selectedProvider === 'Fireworks AI'">Format: <code>accounts/fireworks/models/&lt;model-id&gt;</code></p>
             <p class="hint" x-show="selectedProvider === 'MiniMax' || selectedProvider === 'MiniMax (China)'">e.g. <code>MiniMax-M3</code>, <code>MiniMax-M2.7</code></p>
-            <p class="hint" x-show="!['xAI Grok (SuperGrok)','xAI','Anthropic (Claude)','AWS Bedrock','Fireworks AI','Atlas Cloud','MiniMax','MiniMax (China)','Custom Endpoint','Azure Foundry','9Router','OmniRoute'].includes(selectedProvider) && selectedProvider">Check your provider's docs for model names. OpenRouter format: <code>provider/model-name</code></p>
+            <p class="hint" x-show="!['xAI Grok (SuperGrok)','xAI','Anthropic (Claude)','AWS Bedrock','Fireworks AI','Atlas Cloud','UberLLM','MiniMax','MiniMax (China)','Custom Endpoint','Azure Foundry','9Router','OmniRoute'].includes(selectedProvider) && selectedProvider">Check your provider's docs for model names. OpenRouter format: <code>provider/model-name</code></p>
           </div>
         </div>
 
@@ -2023,6 +2023,18 @@
         </div>
 
         <div class="changelog-entry minor">
+          <div class="changelog-date">November 12, 2026</div>
+          <div class="changelog-meta">
+            <span class="meta-box"><span class="meta-label">Git branch</span><code>release/v0.22.2/3</code></span>
+            <span class="meta-box version"><span class="meta-label">Hermes compatible version</span><code>v0.22.2</code></span>
+          </div>
+          <div class="changelog-group">Improvements</div>
+          <ul class="changelog-list">
+            <li><strong>UberLLM</strong> is now in the Setup provider dropdown (OpenAI-compatible gateway, <code>UBERLLM_API_KEY</code>).</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry minor">
           <div class="changelog-date">October 19, 2026</div>
           <div class="changelog-meta">
             <span class="meta-box"><span class="meta-label">Git branch</span><code>release/v0.22.2/2</code></span>
@@ -2538,6 +2550,7 @@ function app() {
       'Google AI Studio':     { key: 'GEMINI_API_KEY',         modelKey: '_MODEL_GEMINI_API_KEY',         placeholder: 'AIza...'   },
       'Fireworks AI':         { key: 'FIREWORKS_API_KEY',      modelKey: '_MODEL_FIREWORKS_API_KEY',      placeholder: 'fw_...'    },
       'Atlas Cloud':          { key: 'ATLASCLOUD_API_KEY',     modelKey: '_MODEL_ATLASCLOUD_API_KEY',     placeholder: 'apikey-...', modelPlaceholder: 'e.g. deepseek-ai/deepseek-v4-flash', modelHint: 'Model IDs: GET https://api.atlascloud.ai/v1/models' },
+      'UberLLM':              { key: 'UBERLLM_API_KEY',        modelKey: '_MODEL_UBERLLM_API_KEY',        placeholder: 'ull_...', modelPlaceholder: 'e.g. deepseek/deepseek-v4.1-flash', modelHint: 'Model IDs: GET https://api.uberllm.dev/v1/models' },
       'Anthropic (Claude)':   { key: 'ANTHROPIC_API_KEY',      modelKey: '_MODEL_ANTHROPIC_API_KEY',      placeholder: 'sk-ant-...' },
       'xAI':                  { key: 'XAI_API_KEY',             modelKey: '_MODEL_XAI_API_KEY',             placeholder: 'xai-...', keyLabel: 'xAI API Key' },
       'AWS Bedrock':          { key: 'AWS_ACCESS_KEY_ID',       modelKey: '_MODEL_AWS_ACCESS_KEY_ID',       placeholder: 'AKIA...', isBedrock: true, keyLabel: 'AWS Access Key ID' },

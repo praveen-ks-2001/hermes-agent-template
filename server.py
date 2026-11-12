@@ -283,6 +283,7 @@ ENV_VARS = [
     ("NOVITA_API_KEY",           "NovitaAI",                 "provider",  True),
     ("FIREWORKS_API_KEY",        "Fireworks AI",             "provider",  True),
     ("ATLASCLOUD_API_KEY",       "Atlas Cloud",              "provider",  True),
+    ("UBERLLM_API_KEY",          "UberLLM",                  "provider",  True),
     ("ANTHROPIC_API_KEY",        "Anthropic (Claude)",       "provider",  True),
     ("XAI_API_KEY",              "xAI",                      "provider",  True),
     ("AWS_ACCESS_KEY_ID",        "AWS Access Key ID",        "provider",  True),
@@ -403,7 +404,7 @@ HERMES_PROVIDER_IDS = {
     # config.yaml's model block.
     "NINEROUTER_API_KEY":     "ninerouter",
     "OMNIROUTE_API_KEY":      "omniroute",
-    # Fireworks, Novita and Atlas Cloud are routed through provider="custom" with a fixed
+    # Fireworks, Novita, Atlas Cloud and UberLLM are routed through provider="custom" with a fixed
     # base_url (CUSTOM_STYLE_BASE_URLS below) rather than their native ids.
     #
     # CORRECTION (v2026.8.27 audit): the old comment here claimed they are absent
@@ -425,6 +426,7 @@ HERMES_PROVIDER_IDS = {
     "FIREWORKS_API_KEY":       "custom",
     "NOVITA_API_KEY":          "custom",
     "ATLASCLOUD_API_KEY":      "custom",      # OpenAI-compatible gateway, fixed base_url below
+    "UBERLLM_API_KEY":         "custom",      # OpenAI-compatible gateway, fixed base_url below
 }
 
 # Fixed base URLs for the "custom"-style providers above whose credential is a
@@ -435,6 +437,7 @@ CUSTOM_STYLE_BASE_URLS = {
     "FIREWORKS_API_KEY": "https://api.fireworks.ai/inference/v1",
     "NOVITA_API_KEY":    "https://api.novita.ai/openai/v1",
     "ATLASCLOUD_API_KEY": "https://api.atlascloud.ai/v1",
+    "UBERLLM_API_KEY":    "https://api.uberllm.dev/v1",
 }
 
 # Every ENV_VARS "provider" key pinned to the literal "custom" id above.
@@ -682,7 +685,7 @@ def write_config_yaml(data: dict[str, str], *, reset_model: bool = False, preser
                 merged_model["provider"] = MANAGED_ROUTER_PROVIDERS[router_key]["provider_id"]
                 current_provider = merged_model["provider"]
             elif custom_style_key:
-                # CUSTOM_PROVIDER_API_KEY / FIREWORKS_API_KEY / NOVITA_API_KEY / ATLASCLOUD_API_KEY are
+                # CUSTOM_PROVIDER_API_KEY / FIREWORKS_API_KEY / NOVITA_API_KEY / ATLASCLOUD_API_KEY / UBERLLM_API_KEY are
                 # NOT in hermes' own PROVIDER_REGISTRY (see HERMES_PROVIDER_IDS'
                 # comment) — "auto" can never discover them, so defaulting to
                 # "auto" here (the old behavior) left the agent with no usable

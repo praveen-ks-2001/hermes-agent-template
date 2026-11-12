@@ -136,6 +136,14 @@ class ConfigFileSafetyTests(ConfigSafetyFixture, unittest.TestCase):
         self.assertEqual(model["base_url"], "https://api.atlascloud.ai/v1")
         self.assertEqual(model["api_key"], "test-key")
 
+    def test_uberllm_key_pins_custom_provider_with_fixed_base_url(self):
+        self.server.write_config_yaml({"LLM_MODEL": "deepseek/deepseek-v4.1-flash", "UBERLLM_API_KEY": "test-key"})
+
+        model = yaml.safe_load((self.home / "config.yaml").read_text(encoding="utf-8"))["model"]
+        self.assertEqual(model["provider"], "custom")
+        self.assertEqual(model["base_url"], "https://api.uberllm.dev/v1")
+        self.assertEqual(model["api_key"], "test-key")
+
     def test_atomic_env_writer_replaces_file_with_private_permissions(self):
         path = self.home / ".env"
         path.write_text("OLD_KEY=old\n", encoding="utf-8")
