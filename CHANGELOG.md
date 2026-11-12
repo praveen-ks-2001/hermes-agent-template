@@ -11,6 +11,14 @@ release.
 
 ---
 
+## release/v0.22.2/3 — November 12, 2026
+**Hermes v0.22.2 · minor**
+
+### Improvements
+- **UberLLM** is now in the Setup provider dropdown (OpenAI-compatible gateway, `UBERLLM_API_KEY`).
+
+---
+
 ## release/v0.22.2/2 — October 19, 2026
 **Hermes v0.22.2 · minor**
 
